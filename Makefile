@@ -31,6 +31,8 @@ endif
 	@plutil -replace CFBundleExecutable -string "$(APP_NAME)" "$(CONTENTS)/Info.plist"
 	@plutil -replace CFBundleIdentifier -string "$(BUNDLE_ID)" "$(CONTENTS)/Info.plist"
 	@cp $(ICON_ICNS) "$(RESOURCES)/"
+	swift build -c debug --product FreeFlowCLI
+	@cp "$$(swift build -c debug --show-bin-path)/FreeFlowCLI" "$(MACOS_DIR)/freeflow"
 	@codesign --force --sign "$(CODESIGN_IDENTITY)" --entitlements FreeFlow.entitlements "$(APP_BUNDLE)"
 	@echo "Built $(APP_BUNDLE)"
 

@@ -259,6 +259,9 @@ struct GeneralSettingsView: View {
                 SettingsCard("Permissions", icon: "lock.shield.fill") {
                     permissionsSection
                 }
+                SettingsCard("CLI Tool", icon: "terminal.fill") {
+                    cliSection
+                }
             }
             .padding(24)
         }
@@ -635,6 +638,38 @@ struct GeneralSettingsView: View {
                     // If current model isn't in the list, keep it (user may have typed a valid ID)
                 }
             }
+        }
+    }
+
+    // MARK: CLI Tool
+
+    private var cliSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Control FreeFlow from the command line or a joystick app.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            HStack {
+                if CLIInstaller.isInstalled {
+                    Label("Installed at \(CLIInstaller.installPath)", systemImage: "checkmark.circle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.green)
+                } else {
+                    Text("Not installed")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                Button(CLIInstaller.isInstalled ? "Reinstall" : "Install to /usr/local/bin") {
+                    CLIInstaller.install()
+                }
+            }
+
+            Text("Usage: freeflow start | stop | toggle | status")
+                .font(.caption2.monospaced())
+                .foregroundStyle(.tertiary)
         }
     }
 

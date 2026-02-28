@@ -152,6 +152,12 @@ struct MenuBarView: View {
                 NotificationCenter.default.post(name: .showSettings, object: nil)
             }
 
+            if !CLIInstaller.isInstalled {
+                Button("Install CLI Tool...") {
+                    CLIInstaller.install()
+                }
+            }
+
             Divider()
 
             Button(appState.isDebugOverlayActive ? "Stop Debug Overlay" : "Debug Overlay") {
