@@ -12,9 +12,9 @@ ARCH ?= $(shell uname -m)
 ICON_SOURCE = Resources/AppIcon-Source.png
 ICON_ICNS = Resources/AppIcon.icns
 
-.PHONY: all clean run icon dmg codesign-dmg notarize
+.PHONY: all clean run icon dmg codesign-dmg notarize cli install-cli
 
-all: $(MACOS_DIR)/$(APP_NAME)
+all: $(MACOS_DIR)/$(APP_NAME) cli
 
 $(MACOS_DIR)/$(APP_NAME): $(SOURCES) Info.plist $(ICON_ICNS)
 	@mkdir -p "$(MACOS_DIR)" "$(RESOURCES)"
@@ -87,5 +87,18 @@ notarize:
 clean:
 	rm -rf $(BUILD_DIR) .build
 
+cli: $(BUILD_DIR)/freeflow
+
+$(BUILD_DIR)/freeflow: CLI/FreeFlowCLI.swift
+	@mkdir -p "$(BUILD_DIR)"
+	swift build -c debug --product FreeFlowCLI
+	@cp "$$(swift build -c debug --show-bin-path)/FreeFlowCLI" "$(BUILD_DIR)/freeflow"
+	@echo "Built $(BUILD_DIR)/freeflow"
+
+install-cli: cli
+	cp "$(BUILD_DIR)/freeflow" /usr/local/bin/freeflow
+	@echo "Installed freeflow to /usr/local/bin/freeflow"
+
 run: all
+	@-pkill -f "$(APP_NAME)" 2>/dev/null; sleep 0.5
 	open "$(APP_BUNDLE)"

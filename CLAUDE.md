@@ -5,11 +5,15 @@ macOS menu bar app for speech-to-text dictation. Hold a key to record, release t
 ## Build & Run
 
 ```bash
-make        # Build debug .app bundle
-make run    # Build and launch the app
+make        # Build debug .app bundle + CLI tool
+make run    # Build, kill running instance, and (re)launch the app
+make cli    # Build CLI tool only → build/freeflow
+make install-cli  # Copy CLI to /usr/local/bin/freeflow
 make clean  # Remove build/ and .build/
 make dmg    # Build + create DMG installer
 ```
+
+`make run` automatically kills any running FreeFlow instance before launching, so it always starts fresh.
 
 The app is built as `build/FreeFlow Debug.app` via Swift Package Manager + Makefile.
 Do NOT run the binary directly from `.build/debug/FreeFlow` — always use `make run` (or `open "build/FreeFlow Debug.app"`).

@@ -15,5 +15,9 @@ let package = Package(
             ],
             path: "Sources"
         ),
+        .executableTarget(
+            name: "FreeFlowCLI",
+            path: "CLI"
+        ),
     ]
 )

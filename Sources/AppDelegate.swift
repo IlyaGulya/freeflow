@@ -22,6 +22,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             object: nil
         )
 
+        setupDistributedNotifications()
+
         if !appState.hasCompletedSetup {
             showSetupWindow()
         } else {
@@ -137,6 +139,75 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if !AXIsProcessTrusted() {
             appState.showAccessibilityAlert()
         }
+    }
+
+    private func setupDistributedNotifications() {
+        let center = DistributedNotificationCenter.default()
+        center.addObserver(
+            self,
+            selector: #selector(handleDistributedStartRecording),
+            name: .init("com.freeflow.start-recording"),
+            object: nil
+        )
+        center.addObserver(
+            self,
+            selector: #selector(handleDistributedStopRecording),
+            name: .init("com.freeflow.stop-recording"),
+            object: nil
+        )
+        center.addObserver(
+            self,
+            selector: #selector(handleDistributedToggleRecording),
+            name: .init("com.freeflow.toggle-recording"),
+            object: nil
+        )
+        center.addObserver(
+            self,
+            selector: #selector(handleDistributedStatusRequest),
+            name: .init("com.freeflow.status-request"),
+            object: nil
+        )
+    }
+
+    @objc private func handleDistributedStartRecording() {
+        DispatchQueue.main.async {
+            self.appState.startRecordingFromCLI()
+            self.sendAck("start")
+        }
+    }
+
+    @objc private func handleDistributedStopRecording() {
+        DispatchQueue.main.async {
+            self.appState.stopRecordingFromCLI()
+            self.sendAck("stop")
+        }
+    }
+
+    @objc private func handleDistributedToggleRecording() {
+        DispatchQueue.main.async {
+            self.appState.toggleRecording()
+            self.sendAck("toggle")
+        }
+    }
+
+    private func sendAck(_ command: String) {
+        let state = appState.isRecording ? "recording" : "idle"
+        DistributedNotificationCenter.default().postNotificationName(
+            .init("com.freeflow.ack"),
+            object: "\(command):\(state)",
+            userInfo: nil,
+            deliverImmediately: true
+        )
+    }
+
+    @objc private func handleDistributedStatusRequest() {
+        let state = appState.isRecording ? "recording" : "idle"
+        DistributedNotificationCenter.default().postNotificationName(
+            .init("com.freeflow.status-response"),
+            object: state,
+            userInfo: nil,
+            deliverImmediately: true
+        )
     }
 
     private func showModelDownloadWindow() {

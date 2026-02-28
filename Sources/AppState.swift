@@ -65,6 +65,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private let customSystemPromptLastModifiedStorageKey = "custom_system_prompt_last_modified"
     private let customContextPromptLastModifiedStorageKey = "custom_context_prompt_last_modified"
     private let transcriptionProviderStorageKey = "transcription_provider"
+    private let postProcessingModelStorageKey = "post_processing_model"
     private let transcribingIndicatorDelay: TimeInterval = 1.0
     let maxPipelineHistoryCount = 20
 
@@ -159,6 +160,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
             UserDefaults.standard.set(selectedTranscriptionProvider.rawValue, forKey: transcriptionProviderStorageKey)
         }
     }
+    @Published var postProcessingModel: String {
+        didSet {
+            UserDefaults.standard.set(postProcessingModel, forKey: postProcessingModelStorageKey)
+        }
+    }
     @Published var availableMicrophones: [AudioDevice] = []
 
     let audioRecorder = AudioRecorder()
@@ -217,6 +223,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         self.launchAtLogin = SMAppService.mainApp.status == .enabled
         self.selectedMicrophoneID = selectedMicrophoneID
         self.selectedTranscriptionProvider = TranscriptionProvider(rawValue: UserDefaults.standard.string(forKey: transcriptionProviderStorageKey) ?? "") ?? .local
+        self.postProcessingModel = UserDefaults.standard.string(forKey: postProcessingModelStorageKey) ?? "meta-llama/llama-4-scout-17b-16e-instruct"
 
         refreshAvailableMicrophones()
         installAudioDeviceListener()
@@ -453,6 +460,16 @@ final class AppState: ObservableObject, @unchecked Sendable {
         stopAndTranscribe()
     }
 
+    func startRecordingFromCLI() {
+        guard !isRecording else { return }
+        startRecording()
+    }
+
+    func stopRecordingFromCLI() {
+        guard isRecording else { return }
+        stopAndTranscribe()
+    }
+
     func toggleRecording() {
         os_log(.info, log: recordingLog, "toggleRecording() called, isRecording=%{public}d", isRecording)
         if isRecording {
@@ -676,13 +693,17 @@ final class AppState: ObservableObject, @unchecked Sendable {
             } catch {}
         }
 
-        os_log(.info, log: recordingLog, "creating post-processing service, apiBaseURL=%{public}@", apiBaseURL)
+        os_log(.info, log: recordingLog, "creating post-processing service, apiBaseURL=%{public}@, model=%{public}@", apiBaseURL, postProcessingModel)
         let postProcessingService = apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? nil
-            : PostProcessingService(apiKey: apiKey, baseURL: apiBaseURL)
+            : PostProcessingService(apiKey: apiKey, baseURL: apiBaseURL, model: postProcessingModel)
 
         Task {
             do {
+                let pipelineStart = CFAbsoluteTimeGetCurrent()
+
+                // Stage 1: Transcription
+                let transcriptionStart = CFAbsoluteTimeGetCurrent()
                 let rawTranscript: String
                 switch self.selectedTranscriptionProvider {
                 case .local:
@@ -696,7 +717,13 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         rawTranscript = try await TranscriptionService(apiKey: trimmedKey, baseURL: self.apiBaseURL).transcribe(fileURL: fileURL)
                     }
                 }
+                let transcriptionDurationMs = (CFAbsoluteTimeGetCurrent() - transcriptionStart) * 1000
+                os_log(.info, log: recordingLog, "transcription took %.1fms", transcriptionDurationMs)
+
                 os_log(.info, log: recordingLog, "rawTranscript: '%{public}@'", rawTranscript)
+
+                // Stage 2: Context resolution
+                let contextStart = CFAbsoluteTimeGetCurrent()
                 let appContext: AppContext
                 if let sessionContext {
                     os_log(.info, log: recordingLog, "using sessionContext for post-processing")
@@ -708,10 +735,16 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     os_log(.info, log: recordingLog, "using fallbackContext for post-processing")
                     appContext = fallbackContextAtStop()
                 }
+                let contextDurationMs = (CFAbsoluteTimeGetCurrent() - contextStart) * 1000
+                os_log(.info, log: recordingLog, "context resolution took %.1fms", contextDurationMs)
+
                 os_log(.info, log: recordingLog, "appContext: app=%{public}@, window=%{public}@, activity=%{public}@", appContext.appName ?? "nil", appContext.windowTitle ?? "nil", appContext.currentActivity)
                 await MainActor.run { [weak self] in
                     self?.debugStatusMessage = "Running post-processing"
                 }
+
+                // Stage 3: Post-processing
+                let postProcessingStart = CFAbsoluteTimeGetCurrent()
                 let finalTranscript: String
                 let processingStatus: String
                 let postProcessingPrompt: String
@@ -743,6 +776,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     postProcessingPrompt = ""
                     postProcessingReasoning = "No API key configured"
                 }
+                let postProcessingDurationMs = (CFAbsoluteTimeGetCurrent() - postProcessingStart) * 1000
+                let totalDurationMs = (CFAbsoluteTimeGetCurrent() - pipelineStart) * 1000
+                os_log(.info, log: recordingLog, "post-processing took %.1fms, total pipeline %.1fms", postProcessingDurationMs, totalDurationMs)
+
                 await MainActor.run {
                     self.lastContextSummary = appContext.contextSummary
                     self.lastContextScreenshotDataURL = appContext.screenshotDataURL
@@ -762,7 +799,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         postProcessingReasoning: postProcessingReasoning,
                         context: appContext,
                         processingStatus: processingStatus,
-                        audioFileName: savedAudioFileName
+                        audioFileName: savedAudioFileName,
+                        transcriptionDurationMs: transcriptionDurationMs,
+                        contextDurationMs: contextDurationMs,
+                        postProcessingDurationMs: postProcessingDurationMs,
+                        totalDurationMs: totalDurationMs
                     )
                     self.transcribingIndicatorTask?.cancel()
                     self.transcribingIndicatorTask = nil
@@ -847,7 +888,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
         postProcessingReasoning: String = "",
         context: AppContext,
         processingStatus: String,
-        audioFileName: String? = nil
+        audioFileName: String? = nil,
+        transcriptionDurationMs: Double? = nil,
+        contextDurationMs: Double? = nil,
+        postProcessingDurationMs: Double? = nil,
+        totalDurationMs: Double? = nil
     ) {
         let newEntry = PipelineHistoryItem(
             timestamp: Date(),
@@ -863,7 +908,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
             postProcessingStatus: processingStatus,
             debugStatus: debugStatusMessage,
             customVocabulary: customVocabulary,
-            audioFileName: audioFileName
+            audioFileName: audioFileName,
+            transcriptionDurationMs: transcriptionDurationMs,
+            contextDurationMs: contextDurationMs,
+            postProcessingDurationMs: postProcessingDurationMs,
+            totalDurationMs: totalDurationMs
         )
         do {
             let removedAudioFileNames = try pipelineHistoryStore.append(newEntry, maxCount: maxPipelineHistoryCount)
