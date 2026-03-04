@@ -530,8 +530,11 @@ Selected text: \(selectedText ?? "None")
                 do {
                     let filter = SCContentFilter(desktopIndependentWindow: scWindow)
                     let config = SCStreamConfiguration()
-                    config.width = Int(filter.contentRect.width * CGFloat(filter.pointPixelScale))
-                    config.height = Int(filter.contentRect.height * CGFloat(filter.pointPixelScale))
+                    let nativeWidth = filter.contentRect.width * CGFloat(filter.pointPixelScale)
+                    let nativeHeight = filter.contentRect.height * CGFloat(filter.pointPixelScale)
+                    let captureScale = min(screenshotMaxDimension / nativeWidth, screenshotMaxDimension / nativeHeight, 1.0)
+                    config.width = Int(nativeWidth * captureScale)
+                    config.height = Int(nativeHeight * captureScale)
                     config.ignoreShadowsSingleWindow = true
                     config.showsCursor = false
                     let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
@@ -574,8 +577,12 @@ Selected text: \(selectedText ?? "None")
         do {
             let filter = SCContentFilter(display: display, excludingWindows: [])
             let config = SCStreamConfiguration()
-            config.width = Int(display.frame.width) * Int(display.frame.width > 2560 ? 2 : 1)
-            config.height = Int(display.frame.height) * Int(display.frame.width > 2560 ? 2 : 1)
+            let displayScale: CGFloat = display.frame.width > 2560 ? 2 : 1
+            let fullWidth = display.frame.width * displayScale
+            let fullHeight = display.frame.height * displayScale
+            let displayCaptureScale = min(screenshotMaxDimension / fullWidth, screenshotMaxDimension / fullHeight, 1.0)
+            config.width = Int(fullWidth * displayCaptureScale)
+            config.height = Int(fullHeight * displayCaptureScale)
             config.showsCursor = false
             let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
             timings.captureMs = (CFAbsoluteTimeGetCurrent() - captureStart) * 1000
