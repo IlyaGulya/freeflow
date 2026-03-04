@@ -176,6 +176,14 @@ final class PipelineHistoryStore {
                 entity.contextDurationMs = item.contextDurationMs as NSNumber?
                 entity.postProcessingDurationMs = item.postProcessingDurationMs as NSNumber?
                 entity.totalDurationMs = item.totalDurationMs as NSNumber?
+                entity.recordingDurationMs = item.recordingDurationMs as NSNumber?
+                entity.audioFileSizeBytes = item.audioFileSizeBytes as NSNumber?
+                entity.contextCaptureDurationMs = item.contextCaptureDurationMs as NSNumber?
+                entity.contextScreenshotDurationMs = item.contextScreenshotDurationMs as NSNumber?
+                entity.contextLlmInferenceDurationMs = item.contextLlmInferenceDurationMs as NSNumber?
+                entity.transcriptionProvider = item.transcriptionProvider
+                entity.postProcessingModel = item.postProcessingModel
+                entity.pasteDurationMs = item.pasteDurationMs as NSNumber?
                 try saveContext()
             } catch {
                 thrownError = error
@@ -249,7 +257,15 @@ final class PipelineHistoryStore {
             transcriptionDurationMs: entity.transcriptionDurationMs?.doubleValue,
             contextDurationMs: entity.contextDurationMs?.doubleValue,
             postProcessingDurationMs: entity.postProcessingDurationMs?.doubleValue,
-            totalDurationMs: entity.totalDurationMs?.doubleValue
+            totalDurationMs: entity.totalDurationMs?.doubleValue,
+            recordingDurationMs: entity.recordingDurationMs?.doubleValue,
+            audioFileSizeBytes: entity.audioFileSizeBytes?.int64Value,
+            contextCaptureDurationMs: entity.contextCaptureDurationMs?.doubleValue,
+            contextScreenshotDurationMs: entity.contextScreenshotDurationMs?.doubleValue,
+            contextLlmInferenceDurationMs: entity.contextLlmInferenceDurationMs?.doubleValue,
+            transcriptionProvider: entity.transcriptionProvider,
+            postProcessingModel: entity.postProcessingModel,
+            pasteDurationMs: entity.pasteDurationMs?.doubleValue
         )
     }
 
@@ -277,7 +293,15 @@ final class PipelineHistoryStore {
             makeAttribute(name: "transcriptionDurationMs", type: .doubleAttributeType, isOptional: true),
             makeAttribute(name: "contextDurationMs", type: .doubleAttributeType, isOptional: true),
             makeAttribute(name: "postProcessingDurationMs", type: .doubleAttributeType, isOptional: true),
-            makeAttribute(name: "totalDurationMs", type: .doubleAttributeType, isOptional: true)
+            makeAttribute(name: "totalDurationMs", type: .doubleAttributeType, isOptional: true),
+            makeAttribute(name: "recordingDurationMs", type: .doubleAttributeType, isOptional: true),
+            makeAttribute(name: "audioFileSizeBytes", type: .integer64AttributeType, isOptional: true),
+            makeAttribute(name: "contextCaptureDurationMs", type: .doubleAttributeType, isOptional: true),
+            makeAttribute(name: "contextScreenshotDurationMs", type: .doubleAttributeType, isOptional: true),
+            makeAttribute(name: "contextLlmInferenceDurationMs", type: .doubleAttributeType, isOptional: true),
+            makeAttribute(name: "transcriptionProvider", type: .stringAttributeType, isOptional: true),
+            makeAttribute(name: "postProcessingModel", type: .stringAttributeType, isOptional: true),
+            makeAttribute(name: "pasteDurationMs", type: .doubleAttributeType, isOptional: true)
         ]
 
         model.entities = [entity]
@@ -312,4 +336,12 @@ final class PipelineHistoryEntry: NSManagedObject {
     @NSManaged var contextDurationMs: NSNumber?
     @NSManaged var postProcessingDurationMs: NSNumber?
     @NSManaged var totalDurationMs: NSNumber?
+    @NSManaged var recordingDurationMs: NSNumber?
+    @NSManaged var audioFileSizeBytes: NSNumber?
+    @NSManaged var contextCaptureDurationMs: NSNumber?
+    @NSManaged var contextScreenshotDurationMs: NSNumber?
+    @NSManaged var contextLlmInferenceDurationMs: NSNumber?
+    @NSManaged var transcriptionProvider: String?
+    @NSManaged var postProcessingModel: String?
+    @NSManaged var pasteDurationMs: NSNumber?
 }

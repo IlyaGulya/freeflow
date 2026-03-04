@@ -106,6 +106,12 @@ struct AudioDevice: Identifiable {
     }
 }
 
+struct RecordingResult {
+    let fileURL: URL
+    let durationMs: Double
+    let fileSizeBytes: Int64
+}
+
 enum AudioRecorderError: LocalizedError {
     case invalidInputFormat(String)
     case missingInputDevice
@@ -315,9 +321,9 @@ class AudioRecorder: NSObject, ObservableObject {
         os_log(.info, log: recordingLog, "startRecording() complete: %.3fms total", (CFAbsoluteTimeGetCurrent() - t0) * 1000)
     }
 
-    func stopRecording() -> URL? {
-        let elapsed = (CFAbsoluteTimeGetCurrent() - recordingStartTime) * 1000
-        os_log(.info, log: recordingLog, "stopRecording() called: %.3fms after start, %d buffers received", elapsed, bufferCount)
+    func stopRecording() -> RecordingResult? {
+        let recordingDurationMs = (CFAbsoluteTimeGetCurrent() - recordingStartTime) * 1000
+        os_log(.info, log: recordingLog, "stopRecording() called: %.3fms after start, %d buffers received", recordingDurationMs, bufferCount)
 
         _recording.withLock { $0 = false }
         audioFileQueue.sync { audioFile = nil }
@@ -330,27 +336,34 @@ class AudioRecorder: NSObject, ObservableObject {
         realtimeConverter = nil
         os_log(.info, log: recordingLog, "engine stopped (mic indicator off)")
 
-        // Debug: check the recorded file
-        if let url = tempFileURL {
-            if FileManager.default.fileExists(atPath: url.path) {
-                do {
-                    let attrs = try FileManager.default.attributesOfItem(atPath: url.path)
-                    let fileSize = attrs[.size] as? UInt64 ?? 0
-                    os_log(.info, log: recordingLog, "recorded file: %{public}@, size=%llu bytes", url.lastPathComponent, fileSize)
-                    if fileSize == 0 {
-                        os_log(.error, log: recordingLog, "WARNING: recorded file is EMPTY (0 bytes)!")
-                    }
-                } catch {
-                    os_log(.error, log: recordingLog, "failed to get file attributes: %{public}@", error.localizedDescription)
-                }
-            } else {
-                os_log(.error, log: recordingLog, "ERROR: temp file does not exist at %{public}@", url.path)
-            }
-        } else {
+        // Check the recorded file and collect metrics
+        guard let url = tempFileURL else {
             os_log(.error, log: recordingLog, "ERROR: tempFileURL is nil")
+            return nil
         }
 
-        return tempFileURL
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            os_log(.error, log: recordingLog, "ERROR: temp file does not exist at %{public}@", url.path)
+            return nil
+        }
+
+        var fileSizeBytes: Int64 = 0
+        do {
+            let attrs = try FileManager.default.attributesOfItem(atPath: url.path)
+            fileSizeBytes = (attrs[.size] as? Int64) ?? 0
+            os_log(.info, log: recordingLog, "recorded file: %{public}@, size=%lld bytes", url.lastPathComponent, fileSizeBytes)
+            if fileSizeBytes == 0 {
+                os_log(.error, log: recordingLog, "WARNING: recorded file is EMPTY (0 bytes)!")
+            }
+        } catch {
+            os_log(.error, log: recordingLog, "failed to get file attributes: %{public}@", error.localizedDescription)
+        }
+
+        return RecordingResult(
+            fileURL: url,
+            durationMs: recordingDurationMs,
+            fileSizeBytes: fileSizeBytes
+        )
     }
 
     private func computeAudioLevel(from buffer: AVAudioPCMBuffer) {

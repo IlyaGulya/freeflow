@@ -12,6 +12,9 @@ struct AppContext {
     let screenshotDataURL: String?
     let screenshotMimeType: String?
     let screenshotError: String?
+    let screenshotDurationMs: Double?
+    let llmInferenceDurationMs: Double?
+    let totalCaptureDurationMs: Double?
 
     var contextSummary: String {
         currentActivity
@@ -44,7 +47,10 @@ Return only two sentences, no labels, no markdown, no extra commentary.
     }
 
     func collectContext() async -> AppContext {
+        let captureStart = CFAbsoluteTimeGetCurrent()
+
         guard let frontmostApp = NSWorkspace.shared.frontmostApplication else {
+            let totalMs = (CFAbsoluteTimeGetCurrent() - captureStart) * 1000
             return AppContext(
                 appName: nil,
                 bundleIdentifier: nil,
@@ -54,7 +60,10 @@ Return only two sentences, no labels, no markdown, no extra commentary.
                 contextPrompt: nil,
                 screenshotDataURL: nil,
                 screenshotMimeType: nil,
-                screenshotError: "No frontmost application"
+                screenshotError: "No frontmost application",
+                screenshotDurationMs: nil,
+                llmInferenceDurationMs: nil,
+                totalCaptureDurationMs: totalMs
             )
         }
 
@@ -64,14 +73,20 @@ Return only two sentences, no labels, no markdown, no extra commentary.
 
         let windowTitle = focusedWindowTitle(from: appElement) ?? appName
         let selectedText = selectedText(from: appElement)
+
+        let screenshotStart = CFAbsoluteTimeGetCurrent()
         let screenshot = captureActiveWindowScreenshot(
             processIdentifier: frontmostApp.processIdentifier,
             appElement: appElement,
             focusedWindowTitle: windowTitle
         )
+        let screenshotDurationMs = (CFAbsoluteTimeGetCurrent() - screenshotStart) * 1000
+
         let currentActivity: String
         let contextPrompt: String?
+        var llmInferenceDurationMs: Double? = nil
         if !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let llmStart = CFAbsoluteTimeGetCurrent()
             if let result = await inferActivityWithLLM(
                 appName: appName,
                 bundleIdentifier: bundleIdentifier,
@@ -79,9 +94,11 @@ Return only two sentences, no labels, no markdown, no extra commentary.
                 selectedText: selectedText,
                 screenshotDataURL: screenshot.dataURL
             ) {
+                llmInferenceDurationMs = (CFAbsoluteTimeGetCurrent() - llmStart) * 1000
                 currentActivity = result.activity
                 contextPrompt = result.prompt
             } else {
+                llmInferenceDurationMs = (CFAbsoluteTimeGetCurrent() - llmStart) * 1000
                 currentActivity = fallbackCurrentActivity(
                     appName: appName,
                     bundleIdentifier: bundleIdentifier,
@@ -102,6 +119,8 @@ Return only two sentences, no labels, no markdown, no extra commentary.
             contextPrompt = nil
         }
 
+        let totalCaptureDurationMs = (CFAbsoluteTimeGetCurrent() - captureStart) * 1000
+
         return AppContext(
             appName: appName,
             bundleIdentifier: bundleIdentifier,
@@ -111,7 +130,10 @@ Return only two sentences, no labels, no markdown, no extra commentary.
             contextPrompt: contextPrompt,
             screenshotDataURL: screenshot.dataURL,
             screenshotMimeType: screenshot.mimeType,
-            screenshotError: screenshot.error
+            screenshotError: screenshot.error,
+            screenshotDurationMs: screenshotDurationMs,
+            llmInferenceDurationMs: llmInferenceDurationMs,
+            totalCaptureDurationMs: totalCaptureDurationMs
         )
     }
 

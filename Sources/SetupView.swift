@@ -1044,7 +1044,8 @@ struct SetupView: View {
         appState.hotkeyManager.onKeyUp = { [self] in
             DispatchQueue.main.async {
                 guard testPhase == .recording, let recorder = testAudioRecorder else { return }
-                let fileURL = recorder.stopRecording()
+                let recordingResult = recorder.stopRecording()
+                let fileURL = recordingResult?.fileURL
                 testAudioLevelCancellable?.cancel()
                 testAudioLevelCancellable = nil
                 testAudioLevel = 0.0

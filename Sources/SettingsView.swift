@@ -1090,7 +1090,10 @@ struct PromptsSettingsView: View {
             contextPrompt: nil,
             screenshotDataURL: nil,
             screenshotMimeType: nil,
-            screenshotError: nil
+            screenshotError: nil,
+            screenshotDurationMs: nil,
+            llmInferenceDurationMs: nil,
+            totalCaptureDurationMs: nil
         )
 
         Task {
@@ -1478,13 +1481,54 @@ struct RunLogEntryView: View {
                         Text("Pipeline")
                             .font(.caption.weight(.semibold))
 
-                        // Step 1: Context Capture
+                        // Step 1: Recording
                         PipelineStepView(
                             number: 1,
+                            title: "Record Audio",
+                            durationMs: item.recordingDurationMs,
+                            content: {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    if let size = item.audioFileSizeBytes {
+                                        Text("File size: \(formatFileSize(size))")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                            }
+                        )
+
+                        // Step 2: Context Capture
+                        PipelineStepView(
+                            number: 2,
                             title: "Capture Context",
-                            durationMs: item.contextDurationMs,
+                            durationMs: item.contextCaptureDurationMs ?? item.contextDurationMs,
                             content: {
                                 VStack(alignment: .leading, spacing: 6) {
+                                    if item.contextScreenshotDurationMs != nil || item.contextLlmInferenceDurationMs != nil {
+                                        HStack(spacing: 12) {
+                                            if let screenshotMs = item.contextScreenshotDurationMs {
+                                                HStack(spacing: 3) {
+                                                    Text("Screenshot:")
+                                                        .font(.caption2)
+                                                        .foregroundStyle(.tertiary)
+                                                    Text(formatDurationMs(screenshotMs))
+                                                        .font(.caption2)
+                                                        .foregroundStyle(.secondary)
+                                                }
+                                            }
+                                            if let llmMs = item.contextLlmInferenceDurationMs {
+                                                HStack(spacing: 3) {
+                                                    Text("LLM:")
+                                                        .font(.caption2)
+                                                        .foregroundStyle(.tertiary)
+                                                    Text(formatDurationMs(llmMs))
+                                                        .font(.caption2)
+                                                        .foregroundStyle(.secondary)
+                                                }
+                                            }
+                                        }
+                                    }
+
                                     if let dataURL = item.contextScreenshotDataURL,
                                        let image = imageFromDataURL(dataURL) {
                                         Image(nsImage: image)
@@ -1533,17 +1577,18 @@ struct RunLogEntryView: View {
                             }
                         )
 
-                        // Step 2: Transcribe Audio
+                        // Step 3: Transcribe Audio
                         PipelineStepView(
-                            number: 2,
+                            number: 3,
                             title: "Transcribe Audio",
                             durationMs: item.transcriptionDurationMs,
                             content: {
                                 VStack(alignment: .leading, spacing: 4) {
-                                    Text("Sent audio to Groq whisper-large-v3")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                        .textSelection(.enabled)
+                                    if let provider = item.transcriptionProvider {
+                                        Text("Provider: \(provider)")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
                                     if !item.rawTranscript.isEmpty {
                                         Text(item.rawTranscript)
                                             .font(.system(.caption, design: .monospaced))
@@ -1561,13 +1606,19 @@ struct RunLogEntryView: View {
                             }
                         )
 
-                        // Step 3: Post-Process
+                        // Step 4: Post-Process
                         PipelineStepView(
-                            number: 3,
+                            number: 4,
                             title: "Post-Process",
                             durationMs: item.postProcessingDurationMs,
                             content: {
                                 VStack(alignment: .leading, spacing: 6) {
+                                    if let model = item.postProcessingModel {
+                                        Text("Model: \(model)")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+
                                     Text(item.postProcessingStatus)
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
@@ -1625,6 +1676,20 @@ struct RunLogEntryView: View {
                                 }
                             }
                         )
+
+                        // Step 5: Paste (only shown if paste happened)
+                        if let pasteMs = item.pasteDurationMs {
+                            PipelineStepView(
+                                number: 5,
+                                title: "Paste",
+                                durationMs: pasteMs,
+                                content: {
+                                    Text("Pasted to active application")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            )
+                        }
                     }
                 }
                 .padding(12)
@@ -1652,6 +1717,16 @@ private func formatDurationMs(_ ms: Double) -> String {
         return String(format: "%.1fs", ms / 1000)
     } else {
         return String(format: "%.0fms", ms)
+    }
+}
+
+private func formatFileSize(_ bytes: Int64) -> String {
+    if bytes >= 1_000_000 {
+        return String(format: "%.1f MB", Double(bytes) / 1_000_000)
+    } else if bytes >= 1_000 {
+        return String(format: "%.1f KB", Double(bytes) / 1_000)
+    } else {
+        return "\(bytes) B"
     }
 }
 

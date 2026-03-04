@@ -654,22 +654,20 @@ final class AppState: ObservableObject, @unchecked Sendable {
         lastContextScreenshotDataURL = nil
         lastContextScreenshotStatus = "No screenshot"
 
-        guard let fileURL = audioRecorder.stopRecording() else {
-            os_log(.error, log: recordingLog, "stopRecording() returned nil URL")
+        guard let recordingResult = audioRecorder.stopRecording() else {
+            os_log(.error, log: recordingLog, "stopRecording() returned nil")
             audioRecorder.cleanup()
             errorMessage = "No audio recorded"
             isRecording = false
             statusText = "Error"
             return
         }
-        os_log(.info, log: recordingLog, "stopRecording() returned file: %{public}@", fileURL.path)
-        // Check file size before sending to transcription
-        if let fileAttrs = try? FileManager.default.attributesOfItem(atPath: fileURL.path),
-           let fileSize = fileAttrs[.size] as? UInt64 {
-            os_log(.info, log: recordingLog, "audio file size for transcription: %llu bytes", fileSize)
-            if fileSize < 1000 {
-                os_log(.error, log: recordingLog, "WARNING: audio file suspiciously small (%llu bytes), transcription may fail", fileSize)
-            }
+        let fileURL = recordingResult.fileURL
+        let recordingDurationMs = recordingResult.durationMs
+        let audioFileSizeBytes = recordingResult.fileSizeBytes
+        os_log(.info, log: recordingLog, "stopRecording() returned file: %{public}@, duration=%.1fms, size=%lld bytes", fileURL.path, recordingDurationMs, audioFileSizeBytes)
+        if audioFileSizeBytes < 1000 {
+            os_log(.error, log: recordingLog, "WARNING: audio file suspiciously small (%lld bytes), transcription may fail", audioFileSizeBytes)
         }
         let savedAudioFileName = Self.saveAudioFile(from: fileURL)
         isRecording = false
@@ -694,6 +692,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
 
         os_log(.info, log: recordingLog, "creating post-processing service, apiBaseURL=%{public}@, model=%{public}@", apiBaseURL, postProcessingModel)
+        let capturedTranscriptionProvider = selectedTranscriptionProvider.rawValue
+        let capturedPostProcessingModel = postProcessingModel
         let postProcessingService = apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? nil
             : PostProcessingService(apiKey: apiKey, baseURL: apiBaseURL, model: postProcessingModel)
@@ -792,19 +792,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     self.lastRawTranscript = trimmedRawTranscript
                     self.lastPostProcessedTranscript = trimmedFinalTranscript
                     self.lastPostProcessingStatus = processingStatus
-                    self.recordPipelineHistoryEntry(
-                        rawTranscript: trimmedRawTranscript,
-                        postProcessedTranscript: trimmedFinalTranscript,
-                        postProcessingPrompt: postProcessingPrompt,
-                        postProcessingReasoning: postProcessingReasoning,
-                        context: appContext,
-                        processingStatus: processingStatus,
-                        audioFileName: savedAudioFileName,
-                        transcriptionDurationMs: transcriptionDurationMs,
-                        contextDurationMs: contextDurationMs,
-                        postProcessingDurationMs: postProcessingDurationMs,
-                        totalDurationMs: totalDurationMs
-                    )
                     self.transcribingIndicatorTask?.cancel()
                     self.transcribingIndicatorTask = nil
                     self.lastTranscript = trimmedFinalTranscript
@@ -812,6 +799,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     self.debugStatusMessage = "Done"
 
                     os_log(.info, log: recordingLog, "finalTranscript: '%{public}@'", trimmedFinalTranscript)
+                    var pasteDurationMs: Double? = nil
                     if trimmedFinalTranscript.isEmpty {
                         os_log(.info, log: recordingLog, "transcript empty — showing 'Nothing to transcribe'")
                         self.statusText = "Nothing to transcribe"
@@ -825,13 +813,34 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
                         NSPasteboard.general.clearContents()
                         NSPasteboard.general.setString(trimmedFinalTranscript, forType: .string)
-                        os_log(.info, log: recordingLog, "clipboard set, scheduling paste")
+                        os_log(.info, log: recordingLog, "clipboard set, pasting")
 
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                            os_log(.info, log: recordingLog, "pasteAtCursor() firing now")
-                            self.pasteAtCursor()
-                        }
+                        let pasteStart = CFAbsoluteTimeGetCurrent()
+                        self.pasteAtCursor()
+                        pasteDurationMs = (CFAbsoluteTimeGetCurrent() - pasteStart) * 1000
+                        os_log(.info, log: recordingLog, "pasteAtCursor() took %.1fms", pasteDurationMs ?? 0)
                     }
+
+                    let processingDurationMs = (CFAbsoluteTimeGetCurrent() - pipelineStart) * 1000
+                    let finalTotalDurationMs = recordingDurationMs + processingDurationMs
+                    self.recordPipelineHistoryEntry(
+                        rawTranscript: trimmedRawTranscript,
+                        postProcessedTranscript: trimmedFinalTranscript,
+                        postProcessingPrompt: postProcessingPrompt,
+                        postProcessingReasoning: postProcessingReasoning,
+                        context: appContext,
+                        processingStatus: processingStatus,
+                        audioFileName: savedAudioFileName,
+                        transcriptionDurationMs: transcriptionDurationMs,
+                        contextDurationMs: contextDurationMs,
+                        postProcessingDurationMs: postProcessingDurationMs,
+                        totalDurationMs: finalTotalDurationMs,
+                        recordingDurationMs: recordingDurationMs,
+                        audioFileSizeBytes: audioFileSizeBytes,
+                        transcriptionProvider: capturedTranscriptionProvider,
+                        postProcessingModel: capturedPostProcessingModel,
+                        pasteDurationMs: pasteDurationMs
+                    )
 
                     self.audioRecorder.cleanup()
 
@@ -874,7 +883,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         postProcessingPrompt: "",
                         context: resolvedContext,
                         processingStatus: "Error: \(error.localizedDescription)",
-                        audioFileName: savedAudioFileName
+                        audioFileName: savedAudioFileName,
+                        recordingDurationMs: recordingDurationMs,
+                        audioFileSizeBytes: audioFileSizeBytes,
+                        transcriptionProvider: capturedTranscriptionProvider,
+                        postProcessingModel: capturedPostProcessingModel
                     )
                 }
             }
@@ -892,7 +905,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
         transcriptionDurationMs: Double? = nil,
         contextDurationMs: Double? = nil,
         postProcessingDurationMs: Double? = nil,
-        totalDurationMs: Double? = nil
+        totalDurationMs: Double? = nil,
+        recordingDurationMs: Double? = nil,
+        audioFileSizeBytes: Int64? = nil,
+        transcriptionProvider: String? = nil,
+        postProcessingModel: String? = nil,
+        pasteDurationMs: Double? = nil
     ) {
         let newEntry = PipelineHistoryItem(
             timestamp: Date(),
@@ -912,7 +930,15 @@ final class AppState: ObservableObject, @unchecked Sendable {
             transcriptionDurationMs: transcriptionDurationMs,
             contextDurationMs: contextDurationMs,
             postProcessingDurationMs: postProcessingDurationMs,
-            totalDurationMs: totalDurationMs
+            totalDurationMs: totalDurationMs,
+            recordingDurationMs: recordingDurationMs,
+            audioFileSizeBytes: audioFileSizeBytes,
+            contextCaptureDurationMs: context.totalCaptureDurationMs,
+            contextScreenshotDurationMs: context.screenshotDurationMs,
+            contextLlmInferenceDurationMs: context.llmInferenceDurationMs,
+            transcriptionProvider: transcriptionProvider,
+            postProcessingModel: postProcessingModel,
+            pasteDurationMs: pasteDurationMs
         )
         do {
             let removedAudioFileNames = try pipelineHistoryStore.append(newEntry, maxCount: maxPipelineHistoryCount)
@@ -961,7 +987,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
             contextPrompt: nil,
             screenshotDataURL: nil,
             screenshotMimeType: nil,
-            screenshotError: "No app context captured before stop"
+            screenshotError: "No app context captured before stop",
+            screenshotDurationMs: nil,
+            llmInferenceDurationMs: nil,
+            totalCaptureDurationMs: nil
         )
     }
 
