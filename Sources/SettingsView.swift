@@ -698,6 +698,23 @@ struct GeneralSettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.orange)
             }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text("Minimum recording duration")
+                        .font(.subheadline)
+                    Spacer()
+                    Text("\(Int(appState.minimumRecordingDurationMs))ms")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                Slider(value: $appState.minimumRecordingDurationMs, in: 50...500, step: 50)
+                Text("Recordings shorter than this are treated as accidental and cancelled.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 

@@ -55,6 +55,39 @@ enum TranscriptionProvider: String, CaseIterable, Identifiable {
     }
 }
 
+enum PipelineState: Equatable {
+    case idle
+    case starting                              // permissions ok, engine spinning up
+    case initializing                          // >0.5s elapsed, dots overlay shown
+    case recording                             // first audio buffer arrived, waveform
+    case transcribing(showingIndicator: Bool)   // pipeline running
+    case pasting                               // done overlay visible, auto-dismiss
+    case error(message: String)                // auto-clears to idle after 3s
+
+    var isRecording: Bool {
+        switch self {
+        case .starting, .initializing, .recording: return true
+        default: return false
+        }
+    }
+
+    var isTranscribing: Bool {
+        if case .transcribing = self { return true }
+        return false
+    }
+
+    var statusText: String {
+        switch self {
+        case .idle:                    return "Ready"
+        case .starting, .initializing: return "Starting..."
+        case .recording:               return "Recording..."
+        case .transcribing:            return "Transcribing..."
+        case .pasting:                 return "Copied to clipboard!"
+        case .error:                   return "Error"
+        }
+    }
+}
+
 final class AppState: ObservableObject, @unchecked Sendable {
     private let apiKeyStorageKey = "groq_api_key"
     private let apiBaseURLStorageKey = "api_base_url"
@@ -66,6 +99,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private let customContextPromptLastModifiedStorageKey = "custom_context_prompt_last_modified"
     private let transcriptionProviderStorageKey = "transcription_provider"
     private let postProcessingModelStorageKey = "post_processing_model"
+    private let minimumRecordingDurationStorageKey = "minimum_recording_duration_ms"
     private let transcribingIndicatorDelay: TimeInterval = 1.0
     let maxPipelineHistoryCount = 20
 
@@ -127,11 +161,17 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
-    @Published var isRecording = false
-    @Published var isTranscribing = false
+    @Published private(set) var pipelineState: PipelineState = .idle
+    private var initTimerSource: DispatchSourceTimer?
+    private var doneResetTask: Task<Void, Never>?
+    private var doneDismissWorkItem: DispatchWorkItem?
+
+    var isRecording: Bool { pipelineState.isRecording }
+    var isTranscribing: Bool { pipelineState.isTranscribing }
+    var statusText: String { pipelineState.statusText }
+
     @Published var lastTranscript: String = ""
     @Published var errorMessage: String?
-    @Published var statusText: String = "Ready"
     @Published var hasAccessibility = false
     @Published var isDebugOverlayActive = false
     @Published var selectedSettingsTab: SettingsTab? = .general
@@ -148,6 +188,12 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @Published var hasScreenRecordingPermission = false
     @Published var launchAtLogin: Bool {
         didSet { setLaunchAtLogin(launchAtLogin) }
+    }
+
+    @Published var minimumRecordingDurationMs: Double {
+        didSet {
+            UserDefaults.standard.set(minimumRecordingDurationMs, forKey: minimumRecordingDurationStorageKey)
+        }
     }
 
     @Published var selectedMicrophoneID: String {
@@ -222,6 +268,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         self.hasScreenRecordingPermission = initialScreenCapturePermission
         self.launchAtLogin = SMAppService.mainApp.status == .enabled
         self.selectedMicrophoneID = selectedMicrophoneID
+        let storedMinDuration = UserDefaults.standard.double(forKey: minimumRecordingDurationStorageKey)
+        self.minimumRecordingDurationMs = storedMinDuration > 0 ? storedMinDuration : 200
         self.selectedTranscriptionProvider = TranscriptionProvider(rawValue: UserDefaults.standard.string(forKey: transcriptionProviderStorageKey) ?? "") ?? .local
         self.postProcessingModel = UserDefaults.standard.string(forKey: postProcessingModelStorageKey) ?? "meta-llama/llama-4-scout-17b-16e-instruct"
 
@@ -236,6 +284,119 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     deinit {
         removeAudioDeviceListener()
+    }
+
+    // MARK: - Pipeline State Machine
+
+    private func transition(to newState: PipelineState) {
+        let oldState = pipelineState
+
+        // Exit actions
+        switch oldState {
+        case .starting, .initializing:
+            initTimerSource?.cancel()
+            initTimerSource = nil
+        case .recording:
+            audioLevelCancellable?.cancel()
+            audioLevelCancellable = nil
+        case .transcribing:
+            transcribingIndicatorTask?.cancel()
+            transcribingIndicatorTask = nil
+        case .pasting:
+            doneDismissWorkItem?.cancel()
+            doneDismissWorkItem = nil
+            doneResetTask?.cancel()
+            doneResetTask = nil
+        case .error:
+            doneResetTask?.cancel()
+            doneResetTask = nil
+            errorMessage = nil
+        case .idle:
+            break
+        }
+
+        pipelineState = newState
+        os_log(.info, log: recordingLog, "pipeline: %{public}@ → %{public}@",
+               String(describing: oldState), String(describing: newState))
+
+        // Enter actions
+        switch newState {
+        case .idle:
+            audioLevelCancellable?.cancel()
+            audioLevelCancellable = nil
+            if oldState != .idle {
+                overlayManager.dismiss()
+            }
+
+        case .starting:
+            let timer = DispatchSource.makeTimerSource(queue: .main)
+            timer.schedule(deadline: .now() + 0.5)
+            timer.setEventHandler { [weak self] in
+                guard let self, self.pipelineState == .starting else { return }
+                self.transition(to: .initializing)
+            }
+            timer.resume()
+            initTimerSource = timer
+
+        case .initializing:
+            overlayManager.showInitializing()
+
+        case .recording:
+            if case .initializing = oldState {
+                overlayManager.transitionToRecording()
+            } else {
+                overlayManager.showRecording()
+            }
+            NSSound(named: "Tink")?.play()
+
+        case .transcribing(let showingIndicator):
+            if !showingIndicator {
+                overlayManager.slideUpToNotch { }
+                NSSound(named: "Pop")?.play()
+                let delay = transcribingIndicatorDelay
+                transcribingIndicatorTask = Task { [weak self] in
+                    do {
+                        try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                        await MainActor.run { [weak self] in
+                            guard let self, self.pipelineState.isTranscribing else { return }
+                            self.transition(to: .transcribing(showingIndicator: true))
+                        }
+                    } catch {}
+                }
+            } else {
+                overlayManager.showTranscribing()
+            }
+
+        case .pasting:
+            overlayManager.showDone()
+            let workItem = DispatchWorkItem { [weak self] in
+                self?.overlayManager.dismiss()
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.7, execute: workItem)
+            doneDismissWorkItem = workItem
+            doneResetTask = Task { [weak self] in
+                do {
+                    try await Task.sleep(nanoseconds: 3_000_000_000)
+                    await MainActor.run { [weak self] in
+                        guard let self, case .pasting = self.pipelineState else { return }
+                        self.transition(to: .idle)
+                    }
+                } catch {}
+            }
+
+        case .error(let message):
+            overlayManager.dismiss()
+            errorMessage = message
+            doneResetTask = Task { [weak self] in
+                do {
+                    try await Task.sleep(nanoseconds: 3_000_000_000)
+                    await MainActor.run { [weak self] in
+                        guard let self, case .error = self.pipelineState else { return }
+                        self.transition(to: .idle)
+                    }
+                } catch {}
+            }
+        }
     }
 
     private func removeAudioDeviceListener() {
@@ -449,32 +610,48 @@ final class AppState: ObservableObject, @unchecked Sendable {
         hotkeyManager.start(option: selectedHotkey)
     }
 
+    private var canStartRecording: Bool {
+        switch pipelineState {
+        case .idle, .pasting, .error: return true
+        default: return false
+        }
+    }
+
     private func handleHotkeyDown() {
-        os_log(.info, log: recordingLog, "handleHotkeyDown() fired, isRecording=%{public}d, isTranscribing=%{public}d", isRecording, isTranscribing)
-        guard !isRecording && !isTranscribing else { return }
+        os_log(.info, log: recordingLog, "handleHotkeyDown() fired, pipelineState=%{public}@", String(describing: pipelineState))
+        guard canStartRecording else { return }
+        if pipelineState != .idle {
+            transition(to: .idle)
+        }
         startRecording()
     }
 
     private func handleHotkeyUp() {
-        guard isRecording else { return }
+        guard pipelineState.isRecording else { return }
         stopAndTranscribe()
     }
 
     func startRecordingFromCLI() {
-        guard !isRecording else { return }
+        guard canStartRecording else { return }
+        if pipelineState != .idle {
+            transition(to: .idle)
+        }
         startRecording()
     }
 
     func stopRecordingFromCLI() {
-        guard isRecording else { return }
+        guard pipelineState.isRecording else { return }
         stopAndTranscribe()
     }
 
     func toggleRecording() {
-        os_log(.info, log: recordingLog, "toggleRecording() called, isRecording=%{public}d", isRecording)
-        if isRecording {
+        os_log(.info, log: recordingLog, "toggleRecording() called, pipelineState=%{public}@", String(describing: pipelineState))
+        if pipelineState.isRecording {
             stopAndTranscribe()
-        } else {
+        } else if canStartRecording {
+            if pipelineState != .idle {
+                transition(to: .idle)
+            }
             startRecording()
         }
     }
@@ -484,7 +661,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
         os_log(.info, log: recordingLog, "startRecording() entered")
         guard hasAccessibility else {
             errorMessage = "Accessibility permission required. Grant access in System Settings > Privacy & Security > Accessibility."
-            statusText = "No Accessibility"
             showAccessibilityAlert()
             return
         }
@@ -507,7 +683,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         self?.beginRecording()
                     } else {
                         self?.errorMessage = "Microphone permission denied. Grant access in System Settings > Privacy & Security > Microphone."
-                        self?.statusText = "No Microphone"
                         self?.showMicrophonePermissionAlert()
                     }
                 }
@@ -515,7 +690,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
             return false
         default:
             errorMessage = "Microphone permission denied. Grant access in System Settings > Privacy & Security > Microphone."
-            statusText = "No Microphone"
             showMicrophonePermissionAlert()
             return false
         }
@@ -524,38 +698,16 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private func beginRecording() {
         os_log(.info, log: recordingLog, "beginRecording() entered")
         errorMessage = nil
-
-        isRecording = true
-        statusText = "Starting..."
         hasShownScreenshotPermissionAlert = false
+        transition(to: .starting)
 
-        // Show initializing dots only if engine takes longer than 0.5s to start
-        var overlayShown = false
-        let initTimer = DispatchSource.makeTimerSource(queue: .main)
-        initTimer.schedule(deadline: .now() + 0.5)
-        initTimer.setEventHandler { [weak self] in
-            guard let self, !overlayShown else { return }
-            overlayShown = true
-            os_log(.info, log: recordingLog, "engine slow — showing initializing overlay")
-            self.overlayManager.showInitializing()
-        }
-        initTimer.resume()
-
-        // Transition to waveform when first real audio arrives (any non-zero RMS)
         let deviceUID = selectedMicrophoneID
         audioRecorder.onRecordingReady = { [weak self] in
             DispatchQueue.main.async {
                 guard let self else { return }
-                initTimer.cancel()
+                guard self.pipelineState == .starting || self.pipelineState == .initializing else { return }
                 os_log(.info, log: recordingLog, "first real audio — transitioning to waveform")
-                self.statusText = "Recording..."
-                if overlayShown {
-                    self.overlayManager.transitionToRecording()
-                } else {
-                    self.overlayManager.showRecording()
-                }
-                overlayShown = true
-                NSSound(named: "Tink")?.play()
+                self.transition(to: .recording)
             }
         }
 
@@ -576,11 +728,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 }
             } catch {
                 DispatchQueue.main.async {
-                    initTimer.cancel()
-                    self.isRecording = false
-                    self.errorMessage = self.formattedRecordingStartError(error)
-                    self.statusText = "Error"
-                    self.overlayManager.dismiss()
+                    self.transition(to: .error(message: self.formattedRecordingStartError(error)))
                 }
             }
         }
@@ -638,8 +786,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     private func stopAndTranscribe() {
-        audioLevelCancellable?.cancel()
-        audioLevelCancellable = nil
         debugStatusMessage = "Preparing audio"
         let sessionContext = capturedContext
         let inFlightContextTask = contextCaptureTask
@@ -655,41 +801,33 @@ final class AppState: ObservableObject, @unchecked Sendable {
         lastContextScreenshotStatus = "No screenshot"
 
         guard let recordingResult = audioRecorder.stopRecording() else {
-            os_log(.error, log: recordingLog, "stopRecording() returned nil")
+            os_log(.info, log: recordingLog, "stopRecording() returned nil — treating as accidental tap")
             audioRecorder.cleanup()
-            errorMessage = "No audio recorded"
-            isRecording = false
-            statusText = "Error"
+            inFlightContextTask?.cancel()
+            transition(to: .idle)
             return
         }
         let fileURL = recordingResult.fileURL
         let recordingDurationMs = recordingResult.durationMs
         let audioFileSizeBytes = recordingResult.fileSizeBytes
         os_log(.info, log: recordingLog, "stopRecording() returned file: %{public}@, duration=%.1fms, size=%lld bytes", fileURL.path, recordingDurationMs, audioFileSizeBytes)
+
+        if recordingDurationMs < minimumRecordingDurationMs {
+            os_log(.info, log: recordingLog, "recording too short (%.0fms < %.0fms) — dismissing",
+                   recordingDurationMs, minimumRecordingDurationMs)
+            audioRecorder.cleanup()
+            inFlightContextTask?.cancel()
+            transition(to: .idle)
+            return
+        }
+
         if audioFileSizeBytes < 1000 {
             os_log(.error, log: recordingLog, "WARNING: audio file suspiciously small (%lld bytes), transcription may fail", audioFileSizeBytes)
         }
         let savedAudioFileName = Self.saveAudioFile(from: fileURL)
-        isRecording = false
-        isTranscribing = true
-        statusText = "Transcribing..."
         debugStatusMessage = "Transcribing audio"
         errorMessage = nil
-        NSSound(named: "Pop")?.play()
-        overlayManager.slideUpToNotch { }
-
-        transcribingIndicatorTask?.cancel()
-        let indicatorDelay = transcribingIndicatorDelay
-        transcribingIndicatorTask = Task { [weak self] in
-            do {
-                try await Task.sleep(nanoseconds: UInt64(indicatorDelay * 1_000_000_000))
-                let shouldShowTranscribing = self?.isTranscribing ?? false
-                guard shouldShowTranscribing else { return }
-                await MainActor.run { [weak self] in
-                    self?.overlayManager.showTranscribing()
-                }
-            } catch {}
-        }
+        transition(to: .transcribing(showingIndicator: false))
 
         os_log(.info, log: recordingLog, "creating post-processing service, apiBaseURL=%{public}@, model=%{public}@", apiBaseURL, postProcessingModel)
         let capturedTranscriptionProvider = selectedTranscriptionProvider.rawValue
@@ -792,25 +930,15 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     self.lastRawTranscript = trimmedRawTranscript
                     self.lastPostProcessedTranscript = trimmedFinalTranscript
                     self.lastPostProcessingStatus = processingStatus
-                    self.transcribingIndicatorTask?.cancel()
-                    self.transcribingIndicatorTask = nil
                     self.lastTranscript = trimmedFinalTranscript
-                    self.isTranscribing = false
                     self.debugStatusMessage = "Done"
 
                     os_log(.info, log: recordingLog, "finalTranscript: '%{public}@'", trimmedFinalTranscript)
                     var pasteDurationMs: Double? = nil
                     if trimmedFinalTranscript.isEmpty {
-                        os_log(.info, log: recordingLog, "transcript empty — showing 'Nothing to transcribe'")
-                        self.statusText = "Nothing to transcribe"
-                        self.overlayManager.dismiss()
+                        os_log(.info, log: recordingLog, "transcript empty — dismissing")
+                        self.transition(to: .idle)
                     } else {
-                        self.statusText = "Copied to clipboard!"
-                        self.overlayManager.showDone()
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
-                            self.overlayManager.dismiss()
-                        }
-
                         NSPasteboard.general.clearContents()
                         NSPasteboard.general.setString(trimmedFinalTranscript, forType: .string)
                         os_log(.info, log: recordingLog, "clipboard set, pasting")
@@ -819,6 +947,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         self.pasteAtCursor()
                         pasteDurationMs = (CFAbsoluteTimeGetCurrent() - pasteStart) * 1000
                         os_log(.info, log: recordingLog, "pasteAtCursor() took %.1fms", pasteDurationMs ?? 0)
+
+                        self.transition(to: .pasting)
                     }
 
                     let processingDurationMs = (CFAbsoluteTimeGetCurrent() - pipelineStart) * 1000
@@ -851,12 +981,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     )
 
                     self.audioRecorder.cleanup()
-
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
-                        if self.statusText == "Copied to clipboard!" || self.statusText == "Nothing to transcribe" {
-                            self.statusText = "Ready"
-                        }
-                    }
                 }
             } catch {
                 os_log(.error, log: recordingLog, "PIPELINE ERROR: %{public}@", error.localizedDescription)
@@ -869,13 +993,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     resolvedContext = fallbackContextAtStop()
                 }
                 await MainActor.run {
-                    self.transcribingIndicatorTask?.cancel()
-                    self.transcribingIndicatorTask = nil
-                    self.errorMessage = error.localizedDescription
-                    self.isTranscribing = false
-                    self.statusText = "Error"
                     self.audioRecorder.cleanup()
-                    self.overlayManager.dismiss()
                     self.lastPostProcessedTranscript = ""
                     self.lastRawTranscript = ""
                     self.lastContextSummary = ""
@@ -905,6 +1023,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         screenshotImageWidth: resolvedContext.screenshotImageWidth,
                         screenshotImageHeight: resolvedContext.screenshotImageHeight
                     )
+                    self.transition(to: .error(message: error.localizedDescription))
                 }
             }
         }
@@ -1091,14 +1210,10 @@ final class AppState: ObservableObject, @unchecked Sendable {
             // Permission errors are fatal — stop recording
             _ = audioRecorder.stopRecording()
             audioRecorder.cleanup()
-            audioLevelCancellable?.cancel()
-            audioLevelCancellable = nil
             contextCaptureTask?.cancel()
             contextCaptureTask = nil
             capturedContext = nil
-            isRecording = false
-            statusText = "Screenshot Required"
-            overlayManager.dismiss()
+            transition(to: .idle)
 
             NSSound(named: "Basso")?.play()
             showScreenshotPermissionAlert(message: message)
