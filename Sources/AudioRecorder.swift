@@ -112,6 +112,7 @@ struct RecordingResult {
     let fileSizeBytes: Int64
     let engineInitMs: Double?       // nil if engine was reused
     let engineReused: Bool
+    let engineWarmedUp: Bool        // true if engine was pre-warmed via warmUp()
     let inputSampleRate: Double
     let bufferCount: Int
     let firstBufferMs: Double?      // engine start → first buffer
@@ -146,6 +147,8 @@ class AudioRecorder: NSObject, ObservableObject {
     private var engineInitMs: Double?
     private var engineReused: Bool = false
     private var firstBufferMs: Double?
+    /// True when the engine was pre-warmed via warmUp() before startRecording().
+    private var wasWarmedUp: Bool = false
 
     @Published var isRecording = false
     /// Thread-safe flag read from the audio tap callback.
@@ -157,6 +160,129 @@ class AudioRecorder: NSObject, ObservableObject {
     var onRecordingReady: (() -> Void)?
     private var readyFired = false
 
+    /// Pre-warm the audio engine: create engine, install tap, call prepare().
+    /// Does NOT start the engine, so the mic indicator stays off.
+    /// Call this at app launch or when the hotkey is registered.
+    func warmUp(deviceUID: String? = nil) {
+        let t0 = CFAbsoluteTimeGetCurrent()
+        os_log(.info, log: recordingLog, "warmUp() entered")
+
+        // Skip if already warmed up for the same device
+        if audioEngine != nil, currentDeviceUID == deviceUID {
+            os_log(.info, log: recordingLog, "warmUp() skipped — already warm for device")
+            return
+        }
+
+        // Tear down old engine if device changed
+        if audioEngine != nil {
+            audioEngine?.inputNode.removeTap(onBus: 0)
+            audioEngine?.stop()
+            audioEngine = nil
+        }
+
+        guard AVCaptureDevice.default(for: .audio) != nil else {
+            os_log(.error, log: recordingLog, "warmUp() — no audio input device")
+            return
+        }
+
+        let engine = AVAudioEngine()
+
+        // Set specific input device if requested
+        if let uid = deviceUID, !uid.isEmpty, uid != "default",
+           let deviceID = AudioDevice.deviceID(forUID: uid) {
+            let inputUnit = engine.inputNode.audioUnit!
+            var id = deviceID
+            AudioUnitSetProperty(
+                inputUnit,
+                kAudioOutputUnitProperty_CurrentDevice,
+                kAudioUnitScope_Global,
+                0,
+                &id,
+                UInt32(MemoryLayout<AudioDeviceID>.size)
+            )
+        }
+
+        let inputNode = engine.inputNode
+        let inputFormat = inputNode.outputFormat(forBus: 0)
+        guard inputFormat.sampleRate > 0, inputFormat.channelCount > 0 else {
+            os_log(.error, log: recordingLog, "warmUp() — invalid input format (rate=%.0f, ch=%d)", inputFormat.sampleRate, inputFormat.channelCount)
+            return
+        }
+
+        storedInputFormat = inputFormat
+
+        // Install tap — buffers are discarded until _recording is true
+        inputNode.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { [weak self] buffer, _ in
+            guard let self, self._recording.withLock({ $0 }) else { return }
+
+            self.bufferCount += 1
+
+            // Check if this buffer has real audio
+            var rms: Float = 0
+            let frames = Int(buffer.frameLength)
+            if frames > 0, let channelData = buffer.floatChannelData {
+                let samples = channelData[0]
+                var sum: Float = 0
+                for i in 0..<frames { sum += samples[i] * samples[i] }
+                rms = sqrtf(sum / Float(frames))
+            }
+
+            if self.bufferCount <= 40 {
+                let elapsed = (CFAbsoluteTimeGetCurrent() - self.recordingStartTime) * 1000
+                os_log(.info, log: recordingLog, "buffer #%d at %.3fms, frames=%d, rms=%.6f", self.bufferCount, elapsed, buffer.frameLength, rms)
+            }
+
+            // Fire ready callback on first non-silent buffer
+            if !self.readyFired && rms > 0 {
+                self.readyFired = true
+                let elapsed = (CFAbsoluteTimeGetCurrent() - self.recordingStartTime) * 1000
+                self.firstBufferMs = elapsed
+                os_log(.info, log: recordingLog, "FIRST non-silent buffer at %.3fms — recording ready", elapsed)
+                self.onRecordingReady?()
+            }
+
+            // Convert to 16kHz mono and write
+            self.audioFileQueue.sync {
+                if let file = self.audioFile, let converter = self.realtimeConverter, let targetFmt = self.targetFormat {
+                    let ratio = targetFmt.sampleRate / buffer.format.sampleRate
+                    let convertedCapacity = AVAudioFrameCount(Double(buffer.frameLength) * ratio) + 1
+                    guard let convertedBuffer = AVAudioPCMBuffer(pcmFormat: targetFmt, frameCapacity: convertedCapacity) else { return }
+                    var error: NSError?
+                    var consumed = false
+                    converter.convert(to: convertedBuffer, error: &error) { _, outStatus in
+                        if consumed {
+                            outStatus.pointee = .noDataNow
+                            return nil
+                        }
+                        consumed = true
+                        outStatus.pointee = .haveData
+                        return buffer
+                    }
+                    if let error {
+                        os_log(.error, log: recordingLog, "realtime conversion error at buffer #%d: %{public}@", self.bufferCount, error.localizedDescription)
+                    } else if convertedBuffer.frameLength > 0 {
+                        do {
+                            try file.write(from: convertedBuffer)
+                        } catch {
+                            os_log(.error, log: recordingLog, "ERROR writing buffer #%d to file: %{public}@", self.bufferCount, error.localizedDescription)
+                            self.audioFile = nil
+                        }
+                    }
+                } else if self.bufferCount <= 5 {
+                    os_log(.error, log: recordingLog, "audioFile/converter is nil at buffer #%d — audio not being written!", self.bufferCount)
+                }
+            }
+            self.computeAudioLevel(from: buffer)
+        }
+
+        engine.prepare()
+        self.audioEngine = engine
+        self.currentDeviceUID = deviceUID
+
+        let elapsed = (CFAbsoluteTimeGetCurrent() - t0) * 1000
+        os_log(.info, log: recordingLog, "warmUp() complete: %.3fms (engine created, tap installed, prepared — NOT started)", elapsed)
+    }
+
     func startRecording(deviceUID: String? = nil) throws {
         let t0 = CFAbsoluteTimeGetCurrent()
         recordingStartTime = t0
@@ -166,6 +292,7 @@ class AudioRecorder: NSObject, ObservableObject {
         engineInitMs = nil
         engineReused = false
         firstBufferMs = nil
+        wasWarmedUp = false
 
         os_log(.info, log: recordingLog, "startRecording() entered")
 
@@ -174,10 +301,12 @@ class AudioRecorder: NSObject, ObservableObject {
         }
         os_log(.info, log: recordingLog, "AVCaptureDevice check: %.3fms", (CFAbsoluteTimeGetCurrent() - t0) * 1000)
 
-        // Reuse existing engine if same device, otherwise build new one
-        if let _ = audioEngine, currentDeviceUID == deviceUID {
+        // Reuse existing engine if same device (warmed up or paused from previous recording)
+        if let engine = audioEngine, currentDeviceUID == deviceUID {
             engineReused = true
-            os_log(.info, log: recordingLog, "reusing existing engine: %.3fms", (CFAbsoluteTimeGetCurrent() - t0) * 1000)
+            wasWarmedUp = !engine.isRunning  // warm but not started = was pre-warmed
+            os_log(.info, log: recordingLog, "reusing existing engine (warmedUp=%d, running=%d): %.3fms",
+                   wasWarmedUp, engine.isRunning, (CFAbsoluteTimeGetCurrent() - t0) * 1000)
         } else {
             // Tear down old engine if device changed
             if audioEngine != nil {
@@ -345,10 +474,10 @@ class AudioRecorder: NSObject, ObservableObject {
         smoothedLevel = 0.0
         DispatchQueue.main.async { self.audioLevel = 0.0 }
 
-        // Stop engine so mic indicator goes away — keep engine object for fast restart
-        audioEngine?.stop()
+        // Pause engine so mic indicator goes away — keeps resources allocated for fast restart
+        audioEngine?.pause()
         realtimeConverter = nil
-        os_log(.info, log: recordingLog, "engine stopped (mic indicator off)")
+        os_log(.info, log: recordingLog, "engine paused (mic indicator off, resources retained)")
 
         // Check the recorded file and collect metrics
         guard let url = tempFileURL else {
@@ -379,6 +508,7 @@ class AudioRecorder: NSObject, ObservableObject {
             fileSizeBytes: fileSizeBytes,
             engineInitMs: engineInitMs,
             engineReused: engineReused,
+            engineWarmedUp: wasWarmedUp,
             inputSampleRate: storedInputFormat?.sampleRate ?? 0,
             bufferCount: bufferCount,
             firstBufferMs: firstBufferMs

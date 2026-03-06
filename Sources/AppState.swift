@@ -199,6 +199,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @Published var selectedMicrophoneID: String {
         didSet {
             UserDefaults.standard.set(selectedMicrophoneID, forKey: selectedMicrophoneStorageKey)
+            warmUpAudioEngine()
         }
     }
     @Published var selectedTranscriptionProvider: TranscriptionProvider {
@@ -279,6 +280,16 @@ final class AppState: ObservableObject, @unchecked Sendable {
         // Only initialize local transcription if already chosen; otherwise deferred to setup wizard
         if selectedTranscriptionProvider == .local && hasCompletedSetup {
             localTranscriptionService.initialize()
+        }
+
+        // Pre-warm audio engine (creates engine, installs tap, calls prepare() — no mic indicator)
+        warmUpAudioEngine()
+    }
+
+    private func warmUpAudioEngine() {
+        let deviceUID = selectedMicrophoneID
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            self?.audioRecorder.warmUp(deviceUID: deviceUID)
         }
     }
 
@@ -981,6 +992,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     // Engine metrics from recording result
                     metrics.set("engine.initMs", recordingResult.engineInitMs)
                     metrics.set("engine.reused", recordingResult.engineReused)
+                    metrics.set("engine.warmedUp", recordingResult.engineWarmedUp)
                     metrics.set("engine.inputSampleRate", recordingResult.inputSampleRate)
                     metrics.set("engine.bufferCount", recordingResult.bufferCount)
                     metrics.set("engine.firstBufferMs", recordingResult.firstBufferMs)
@@ -1035,6 +1047,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     errorMetrics.set("screenshot.height", resolvedContext.screenshotImageHeight)
                     errorMetrics.set("engine.initMs", recordingResult.engineInitMs)
                     errorMetrics.set("engine.reused", recordingResult.engineReused)
+                    errorMetrics.set("engine.warmedUp", recordingResult.engineWarmedUp)
                     errorMetrics.set("engine.inputSampleRate", recordingResult.inputSampleRate)
                     errorMetrics.set("engine.bufferCount", recordingResult.bufferCount)
                     errorMetrics.set("engine.firstBufferMs", recordingResult.firstBufferMs)
