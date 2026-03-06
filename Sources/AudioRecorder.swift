@@ -1,9 +1,44 @@
+import AudioToolbox
 import AVFoundation
 import CoreAudio
 import Foundation
 import os.log
 
 private let recordingLog = OSLog(subsystem: "com.zachlatta.freeflow", category: "Recording")
+
+// MARK: - AUHAL Render Notify (C-function, RT-safe — no ARC, no alloc, no locks)
+// Called by AudioUnitAddRenderNotify after the input node renders each HAL buffer.
+
+private let auhalRenderNotify: AURenderCallback = { refCon, ioActionFlags, inTimeStamp, inBusNumber, inNumberFrames, ioData in
+    // Only process post-render phase on bus 1 (input scope of I/O unit)
+    guard ioActionFlags.pointee.contains(.unitRenderAction_PostRender) else { return noErr }
+    guard inBusNumber == 1 else { return noErr }
+
+    let rec = Unmanaged<AudioRecorder>.fromOpaque(refCon).takeUnretainedValue()
+
+    // Extract float samples from channel 0 of the rendered data
+    guard let ioData = ioData else { return noErr }
+    let bufferList = UnsafeMutableAudioBufferListPointer(ioData)
+    guard bufferList.count > 0,
+          let data = bufferList[0].mData else { return noErr }
+
+    let frameCount = min(Int(inNumberFrames), Int(bufferList[0].mDataByteSize) / MemoryLayout<Float32>.size)
+    guard frameCount > 0 else { return noErr }
+
+    let floatPtr = data.assumingMemoryBound(to: Float32.self)
+
+    // Track first callback timing (simple store — RT-safe)
+    if !rec.firstTapCallbackFired {
+        rec.firstTapCallbackFired = true
+        rec.firstTapCallbackMs = (CFAbsoluteTimeGetCurrent() - rec.recordingStartTime) * 1000
+        rec.firstBufferFrames = frameCount
+    }
+
+    // Write to ring buffer (RT-safe, no alloc)
+    _ = rec.ringBuffer?.write(floatPtr, count: frameCount)
+
+    return noErr
+}
 
 struct AudioDevice: Identifiable {
     let id: AudioDeviceID
@@ -130,6 +165,8 @@ struct RecordingResult {
     // Timing checkpoints
     let armedMs: Double?              // when _recording=true relative to start
     let fileReadyMs: Double?          // when file/converter ready relative to start
+    // Backend
+    let engineBackend: String         // "auhal" or "tap"
 }
 
 enum AudioRecorderError: LocalizedError {
@@ -146,12 +183,86 @@ enum AudioRecorderError: LocalizedError {
     }
 }
 
+// MARK: - Lock-free SPSC Ring Buffer (RT-safe producer, single consumer)
+
+private final class SPSCRingBuffer {
+    private let buffer: UnsafeMutablePointer<Float32>
+    private let capacity: Int
+    private let mask: Int  // capacity - 1 (power of 2)
+    // Atomic indices — only writeIndex written by producer, only readIndex written by consumer
+    private let writeIndex = UnsafeMutablePointer<Int>.allocate(capacity: 1)
+    private let readIndex = UnsafeMutablePointer<Int>.allocate(capacity: 1)
+
+    init(capacity requestedCapacity: Int) {
+        // Round up to next power of 2
+        var cap = 1
+        while cap < requestedCapacity { cap <<= 1 }
+        self.capacity = cap
+        self.mask = cap - 1
+        self.buffer = .allocate(capacity: cap)
+        self.buffer.initialize(repeating: 0, count: cap)
+        self.writeIndex.initialize(to: 0)
+        self.readIndex.initialize(to: 0)
+    }
+
+    deinit {
+        buffer.deallocate()
+        writeIndex.deallocate()
+        readIndex.deallocate()
+    }
+
+    /// RT-safe write. Returns number of samples actually written.
+    func write(_ src: UnsafePointer<Float32>, count: Int) -> Int {
+        let rd = readIndex.pointee
+        let wr = writeIndex.pointee
+        let available = capacity - (wr - rd)
+        let toWrite = min(count, available)
+        guard toWrite > 0 else { return 0 }
+
+        let startPos = wr & mask
+        let firstChunk = min(toWrite, capacity - startPos)
+        buffer.advanced(by: startPos).update(from: src, count: firstChunk)
+        if firstChunk < toWrite {
+            buffer.update(from: src.advanced(by: firstChunk), count: toWrite - firstChunk)
+        }
+        writeIndex.pointee = wr + toWrite
+        return toWrite
+    }
+
+    /// Consumer-side read. Returns number of samples read.
+    func read(into dst: UnsafeMutablePointer<Float32>, count: Int) -> Int {
+        let wr = writeIndex.pointee
+        let rd = readIndex.pointee
+        let available = wr - rd
+        let toRead = min(count, available)
+        guard toRead > 0 else { return 0 }
+
+        let startPos = rd & mask
+        let firstChunk = min(toRead, capacity - startPos)
+        dst.update(from: buffer.advanced(by: startPos), count: firstChunk)
+        if firstChunk < toRead {
+            dst.advanced(by: firstChunk).update(from: buffer, count: toRead - firstChunk)
+        }
+        readIndex.pointee = rd + toRead
+        return toRead
+    }
+
+    var availableToRead: Int {
+        return writeIndex.pointee - readIndex.pointee
+    }
+
+    func reset() {
+        writeIndex.pointee = 0
+        readIndex.pointee = 0
+    }
+}
+
 class AudioRecorder: NSObject, ObservableObject {
-    private var audioEngine: AVAudioEngine?
+    fileprivate var audioEngine: AVAudioEngine?
     private var audioFile: AVAudioFile?
     private var tempFileURL: URL?
     private let audioFileQueue = DispatchQueue(label: "com.zachlatta.freeflow.audiofile")
-    private var recordingStartTime: CFAbsoluteTime = 0
+    fileprivate var recordingStartTime: CFAbsoluteTime = 0
     private var firstBufferLogged = false
     private var bufferCount: Int = 0
     private var currentDeviceUID: String?
@@ -162,13 +273,13 @@ class AudioRecorder: NSObject, ObservableObject {
     private var engineInitMs: Double?
     private var engineReused: Bool = false
     private var engineStartMs: Double?
-    private var firstTapCallbackMs: Double?
+    fileprivate var firstTapCallbackMs: Double?
     private var firstNonSilentBufferMs: Double?
-    private var firstBufferFrames: Int?
+    fileprivate var firstBufferFrames: Int?
     private var wasWarmedUp: Bool = false
     private var armedMs: Double?
     private var fileReadyMs: Double?
-    private var firstTapCallbackFired = false
+    fileprivate var firstTapCallbackFired = false
     // HAL info
     private var halBufferFrames: Int?
     private var halMinFrames: Int?
@@ -177,6 +288,13 @@ class AudioRecorder: NSObject, ObservableObject {
     private var halBufferActual: Int?
     /// Resolved CoreAudio device ID for the current input device.
     private var resolvedDeviceID: AudioDeviceID?
+    // AUHAL direct callback state
+    fileprivate var ringBuffer: SPSCRingBuffer?
+    private var drainTimer: DispatchSourceTimer?
+    private var usingAUHAL: Bool = false
+    private var selfRef: Unmanaged<AudioRecorder>?
+    private var monoInputFormat: AVAudioFormat?  // mono float at input sample rate, for AUHAL drain
+    private var auhalConverter: AVAudioConverter?
 
     @Published var isRecording = false
     private let _recording = OSAllocatedUnfairLock(initialState: false)
@@ -308,11 +426,67 @@ class AudioRecorder: NSObject, ObservableObject {
 
         storedInputFormat = inputFormat
 
-        // Install tap — buffers are discarded until _recording is true
+        // Always install tap — needed for engine to pull from input node.
+        // In AUHAL mode the tap is a no-op; ring buffer gets HAL-rate data via render notify.
+        // In fallback mode the tap does all the work (convert + write).
+        engine.prepare()
+
+        // Use the input node's audio unit for render notify — it fires at HAL rate
+        if let audioUnit = engine.inputNode.audioUnit {
+            usingAUHAL = setupAUHALCallback(audioUnit: audioUnit)
+        }
+
+        if usingAUHAL {
+            // No-op tap — just keeps the engine pulling audio
+            inputNode.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { _, _ in }
+        } else {
+            os_log(.info, log: recordingLog, "AUHAL render notify failed — falling back to installTap")
+            installTapFallback(inputNode: inputNode, inputFormat: inputFormat)
+        }
+
+        return engine
+    }
+
+    // MARK: - AUHAL Direct Callback
+
+    private func setupAUHALCallback(audioUnit: AudioUnit) -> Bool {
+        // Allocate ring buffer: 131072 samples (~3s at 44.1kHz)
+        let ring = SPSCRingBuffer(capacity: 131072)
+        self.ringBuffer = ring
+
+        // Retain self for the callback (Unmanaged, no ARC in RT thread)
+        selfRef = Unmanaged.passRetained(self)
+
+        // Add render notify — called at HAL rate after each render
+        let status = AudioUnitAddRenderNotify(
+            audioUnit,
+            auhalRenderNotify,
+            selfRef!.toOpaque()
+        )
+
+        if status != noErr {
+            os_log(.error, log: recordingLog, "Failed to add AUHAL render notify: %d", status)
+            cleanupAUHALResources()
+            return false
+        }
+
+        os_log(.info, log: recordingLog, "AUHAL render notify installed successfully")
+        return true
+    }
+
+    private func cleanupAUHALResources() {
+        if let ref = selfRef {
+            ref.release()
+            selfRef = nil
+        }
+        ringBuffer = nil
+        usingAUHAL = false
+    }
+
+    private func installTapFallback(inputNode: AVAudioNode, inputFormat: AVAudioFormat) {
         inputNode.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { [weak self] buffer, _ in
             guard let self else { return }
 
-            // Track first tap callback regardless of _recording state
             if !self.firstTapCallbackFired {
                 self.firstTapCallbackFired = true
                 let elapsed = (CFAbsoluteTimeGetCurrent() - self.recordingStartTime) * 1000
@@ -339,7 +513,6 @@ class AudioRecorder: NSObject, ObservableObject {
                 os_log(.info, log: recordingLog, "buffer #%d at %.3fms, frames=%d, rms=%.6f", self.bufferCount, elapsed, buffer.frameLength, rms)
             }
 
-            // Fire ready callback on first non-silent buffer
             if !self.readyFired && rms > 0 {
                 self.readyFired = true
                 let elapsed = (CFAbsoluteTimeGetCurrent() - self.recordingStartTime) * 1000
@@ -348,7 +521,6 @@ class AudioRecorder: NSObject, ObservableObject {
                 self.onRecordingReady?()
             }
 
-            // Convert to 16kHz mono and write
             self.audioFileQueue.sync {
                 if let file = self.audioFile, let converter = self.realtimeConverter, let targetFmt = self.targetFormat {
                     let ratio = targetFmt.sampleRate / buffer.format.sampleRate
@@ -381,9 +553,117 @@ class AudioRecorder: NSObject, ObservableObject {
             }
             self.computeAudioLevel(from: buffer)
         }
+    }
 
-        engine.prepare()
-        return engine
+    // MARK: - Consumer Timer (drains ring buffer on audioFileQueue)
+
+    private func startDrainTimer() {
+        guard usingAUHAL else { return }
+        let timer = DispatchSource.makeTimerSource(queue: audioFileQueue)
+        timer.schedule(deadline: .now(), repeating: .milliseconds(10))
+        timer.setEventHandler { [weak self] in
+            self?.drainRingBuffer()
+        }
+        timer.resume()
+        drainTimer = timer
+    }
+
+    private func stopDrainTimer() {
+        drainTimer?.cancel()
+        drainTimer = nil
+        // Final drain
+        if usingAUHAL {
+            audioFileQueue.sync { self.drainRingBuffer() }
+        }
+    }
+
+    private func drainRingBuffer() {
+        guard let ring = ringBuffer, let monoFmt = monoInputFormat else { return }
+        let available = ring.availableToRead
+        guard available > 0 else { return }
+
+        // Read from ring buffer into a temporary buffer
+        let readCount = min(available, 8192)
+        let tempBuf = UnsafeMutablePointer<Float32>.allocate(capacity: readCount)
+        defer { tempBuf.deallocate() }
+        let actualRead = ring.read(into: tempBuf, count: readCount)
+        guard actualRead > 0 else { return }
+
+        // Track first callback timing
+        if !firstTapCallbackFired {
+            firstTapCallbackFired = true
+            let elapsed = (CFAbsoluteTimeGetCurrent() - recordingStartTime) * 1000
+            firstTapCallbackMs = elapsed
+            firstBufferFrames = actualRead
+            os_log(.info, log: recordingLog, "FIRST AUHAL data drained at %.3fms, frames=%d", elapsed, actualRead)
+        }
+
+        guard _recording.withLock({ $0 }) else { return }
+
+        bufferCount += 1
+
+        // Compute RMS from raw samples
+        var sum: Float = 0
+        for i in 0..<actualRead { sum += tempBuf[i] * tempBuf[i] }
+        let rms = sqrtf(sum / Float(actualRead))
+
+        if bufferCount <= 40 {
+            let elapsed = (CFAbsoluteTimeGetCurrent() - recordingStartTime) * 1000
+            os_log(.info, log: recordingLog, "drain #%d at %.3fms, frames=%d, rms=%.6f", bufferCount, elapsed, actualRead, rms)
+        }
+
+        // Fire ready callback on first non-silent buffer
+        if !readyFired && rms > 0 {
+            readyFired = true
+            let elapsed = (CFAbsoluteTimeGetCurrent() - recordingStartTime) * 1000
+            firstNonSilentBufferMs = elapsed
+            os_log(.info, log: recordingLog, "FIRST non-silent drain at %.3fms — recording ready", elapsed)
+            onRecordingReady?()
+        }
+
+        // Wrap in AVAudioPCMBuffer with mono format (matches what AUHAL callback renders)
+        guard let pcmBuffer = AVAudioPCMBuffer(pcmFormat: monoFmt, frameCapacity: AVAudioFrameCount(actualRead)) else { return }
+        pcmBuffer.frameLength = AVAudioFrameCount(actualRead)
+        if let channelData = pcmBuffer.floatChannelData {
+            channelData[0].update(from: tempBuf, count: actualRead)
+        }
+
+        // Convert to 16kHz mono and write
+        if let file = audioFile, let converter = auhalConverter, let targetFmt = targetFormat {
+            let ratio = targetFmt.sampleRate / monoFmt.sampleRate
+            let convertedCapacity = AVAudioFrameCount(Double(actualRead) * ratio) + 1
+            guard let convertedBuffer = AVAudioPCMBuffer(pcmFormat: targetFmt, frameCapacity: convertedCapacity) else { return }
+            var error: NSError?
+            var consumed = false
+            converter.convert(to: convertedBuffer, error: &error) { _, outStatus in
+                if consumed {
+                    outStatus.pointee = .noDataNow
+                    return nil
+                }
+                consumed = true
+                outStatus.pointee = .haveData
+                return pcmBuffer
+            }
+            if let error {
+                os_log(.error, log: recordingLog, "realtime conversion error at drain #%d: %{public}@", bufferCount, error.localizedDescription)
+            } else if convertedBuffer.frameLength > 0 {
+                do {
+                    try file.write(from: convertedBuffer)
+                } catch {
+                    os_log(.error, log: recordingLog, "ERROR writing drain #%d to file: %{public}@", bufferCount, error.localizedDescription)
+                    audioFile = nil
+                }
+            }
+        }
+
+        // Update audio level
+        let scaled = min(rms * 10.0, 1.0)
+        if scaled > smoothedLevel {
+            smoothedLevel = smoothedLevel * 0.3 + scaled * 0.7
+        } else {
+            smoothedLevel = smoothedLevel * 0.6 + scaled * 0.4
+        }
+        DispatchQueue.main.async { self.audioLevel = self.smoothedLevel }
     }
 
     private func resolveDefaultInputDeviceID() -> AudioDeviceID? {
@@ -409,11 +689,7 @@ class AudioRecorder: NSObject, ObservableObject {
             return
         }
 
-        if audioEngine != nil {
-            audioEngine?.inputNode.removeTap(onBus: 0)
-            audioEngine?.stop()
-            audioEngine = nil
-        }
+        teardownEngine()
 
         guard AVCaptureDevice.default(for: .audio) != nil else {
             os_log(.error, log: recordingLog, "warmUp() — no audio input device")
@@ -428,11 +704,25 @@ class AudioRecorder: NSObject, ObservableObject {
             // Probe HAL buffer info and try to optimize
             probeAndOptimizeHALBuffer()
 
+            let backend = usingAUHAL ? "auhal" : "tap"
             let elapsed = (CFAbsoluteTimeGetCurrent() - t0) * 1000
-            os_log(.info, log: recordingLog, "warmUp() complete: %.3fms (engine created, tap installed, prepared — NOT started)", elapsed)
+            os_log(.info, log: recordingLog, "warmUp() complete: %.3fms (backend=%{public}@, prepared — NOT started)", elapsed, backend)
         } catch {
             os_log(.error, log: recordingLog, "warmUp() failed: %{public}@", error.localizedDescription)
         }
+    }
+
+    private func teardownEngine() {
+        if usingAUHAL {
+            // Remove render notify before stopping engine
+            if let au = audioEngine?.inputNode.audioUnit, let ref = selfRef {
+                AudioUnitRemoveRenderNotify(au, auhalRenderNotify, ref.toOpaque())
+            }
+            cleanupAUHALResources()
+        }
+        audioEngine?.inputNode.removeTap(onBus: 0)
+        audioEngine?.stop()
+        audioEngine = nil
     }
 
     // MARK: - Recording
@@ -473,9 +763,7 @@ class AudioRecorder: NSObject, ObservableObject {
         } else {
             // Tear down old engine if device changed
             if audioEngine != nil {
-                audioEngine?.inputNode.removeTap(onBus: 0)
-                audioEngine?.stop()
-                audioEngine = nil
+                teardownEngine()
             }
 
             let initStart = CFAbsoluteTimeGetCurrent()
@@ -510,6 +798,23 @@ class AudioRecorder: NSObject, ObservableObject {
         }
         self.realtimeConverter = converter
 
+        // For AUHAL path: create mono float format + converter (callback renders mono channel 0)
+        if usingAUHAL {
+            guard let monoFmt = AVAudioFormat(
+                commonFormat: .pcmFormatFloat32,
+                sampleRate: inputFormat.sampleRate,
+                channels: 1,
+                interleaved: false
+            ) else {
+                throw AudioRecorderError.invalidInputFormat("Failed to create mono float format")
+            }
+            self.monoInputFormat = monoFmt
+            guard let auhalConv = AVAudioConverter(from: monoFmt, to: outFormat) else {
+                throw AudioRecorderError.invalidInputFormat("Failed to create AUHAL converter")
+            }
+            self.auhalConverter = auhalConv
+        }
+
         let newAudioFile = try AVAudioFile(
             forWriting: fileURL,
             settings: outFormat.settings,
@@ -520,11 +825,17 @@ class AudioRecorder: NSObject, ObservableObject {
         fileReadyMs = (CFAbsoluteTimeGetCurrent() - t0) * 1000
         os_log(.info, log: recordingLog, "file+converter ready: %.3fms", fileReadyMs ?? 0)
 
-        // Arm recording — tap will start writing from next buffer
+        // Reset ring buffer before arming
+        ringBuffer?.reset()
+
+        // Arm recording — tap/callback will start writing from next buffer
         _recording.withLock { $0 = true }
         self.isRecording = true
         armedMs = (CFAbsoluteTimeGetCurrent() - t0) * 1000
-        os_log(.info, log: recordingLog, "recording armed: %.3fms", armedMs ?? 0)
+        os_log(.info, log: recordingLog, "recording armed: %.3fms (backend=%{public}@)", armedMs ?? 0, usingAUHAL ? "auhal" : "tap")
+
+        // Start drain timer for AUHAL mode
+        startDrainTimer()
 
         // Probe HAL and try to optimize (in case warmUp didn't run or device changed)
         probeAndOptimizeHALBuffer()
@@ -546,6 +857,7 @@ class AudioRecorder: NSObject, ObservableObject {
         os_log(.info, log: recordingLog, "stopRecording() called: %.3fms after start, %d buffers received", recordingDurationMs, bufferCount)
 
         _recording.withLock { $0 = false }
+        stopDrainTimer()
         audioFileQueue.sync { audioFile = nil }
         isRecording = false
         smoothedLevel = 0.0
@@ -553,6 +865,7 @@ class AudioRecorder: NSObject, ObservableObject {
 
         audioEngine?.pause()
         realtimeConverter = nil
+        auhalConverter = nil
         os_log(.info, log: recordingLog, "engine paused (mic indicator off, resources retained)")
 
         guard let url = tempFileURL else {
@@ -604,7 +917,8 @@ class AudioRecorder: NSObject, ObservableObject {
             halBufferSetTo: halBufferSetTo,
             halBufferActual: halBufferActual,
             armedMs: armedMs,
-            fileReadyMs: fileReadyMs
+            fileReadyMs: fileReadyMs,
+            engineBackend: usingAUHAL ? "auhal" : "tap"
         )
     }
 
