@@ -144,6 +144,10 @@ struct MenuBarView: View {
                 }
             }
 
+            if !appState.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Toggle("LLM Post-Processing", isOn: $appState.postProcessingEnabled)
+            }
+
             Button("Re-run Setup...") {
                 NotificationCenter.default.post(name: .showSetup, object: nil)
             }

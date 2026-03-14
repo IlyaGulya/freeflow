@@ -9,12 +9,22 @@ struct ModelDownloadView: View {
             Spacer()
 
             switch localTranscriptionService.state {
-            case .notLoaded, .loading:
+            case .notLoaded, .downloading:
                 ProgressView()
                     .controlSize(.large)
                 Text("Setting Up Local Transcription")
                     .font(.headline)
                 Text("Downloading the speech recognition model. This only happens once.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+
+            case .compiling:
+                ProgressView()
+                    .controlSize(.large)
+                Text("Compiling Model")
+                    .font(.headline)
+                Text("Optimizing the model for your device. This may take a moment.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)

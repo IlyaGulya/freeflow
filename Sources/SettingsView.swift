@@ -243,8 +243,13 @@ struct GeneralSettingsView: View {
                     apiKeySection
                 }
                 if !appState.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    SettingsCard("Post-Processing Model", icon: "cpu") {
-                        postProcessingModelSection
+                    SettingsCard("Post-Processing", icon: "sparkles") {
+                        postProcessingSection
+                    }
+                    if appState.postProcessingEnabled {
+                        SettingsCard("Post-Processing Model", icon: "cpu") {
+                            postProcessingModelSection
+                        }
                     }
                 }
                 SettingsCard("Push-to-Talk Key", icon: "keyboard.fill") {
@@ -459,10 +464,15 @@ struct GeneralSettingsView: View {
                         .foregroundStyle(.secondary)
                     Text("Not loaded")
                         .foregroundStyle(.secondary)
-                case .loading:
+                case .downloading:
                     ProgressView()
                         .controlSize(.small)
-                    Text("Loading model...")
+                    Text("Downloading model...")
+                        .foregroundStyle(.secondary)
+                case .compiling:
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Compiling model...")
                         .foregroundStyle(.secondary)
                 case .ready:
                     Image(systemName: "checkmark.circle.fill")
@@ -573,6 +583,17 @@ struct GeneralSettingsView: View {
                     keyValidationError = "Invalid API key. Please check and try again."
                 }
             }
+        }
+    }
+
+    // MARK: Post-Processing
+
+    private var postProcessingSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Toggle("Enable LLM post-processing", isOn: $appState.postProcessingEnabled)
+            Text("When enabled, an LLM cleans up transcriptions using screen context. When disabled, raw transcription is pasted directly.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
     }
 

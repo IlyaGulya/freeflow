@@ -857,11 +857,11 @@ struct SetupView: View {
     @ViewBuilder
     private var modelDownloadStatusInline: some View {
         switch appState.localTranscriptionService.state {
-        case .notLoaded, .loading:
+        case .notLoaded, .downloading, .compiling:
             HStack(spacing: 4) {
                 ProgressView()
                     .scaleEffect(0.5)
-                Text("Downloading model...")
+                Text(appState.localTranscriptionService.state == .compiling ? "Compiling model..." : "Downloading model...")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }

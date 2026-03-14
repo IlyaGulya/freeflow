@@ -878,6 +878,9 @@ class AudioRecorder: NSObject, ObservableObject {
             return nil
         }
 
+        // Pad short recordings with silence to meet Parakeet's 1-second minimum
+        padToMinimumDuration(url: url, minSeconds: 1.0)
+
         var fileSizeBytes: Int64 = 0
         do {
             let attrs = try FileManager.default.attributesOfItem(atPath: url.path)
@@ -954,6 +957,43 @@ class AudioRecorder: NSObject, ObservableObject {
 
         DispatchQueue.main.async {
             self.audioLevel = self.smoothedLevel
+        }
+    }
+
+    /// Pad a 16kHz mono Int16 WAV file with silence if shorter than `minSeconds`.
+    private func padToMinimumDuration(url: URL, minSeconds: Double) {
+        do {
+            // Read original file
+            let readFile = try AVAudioFile(forReading: url)
+            let format = readFile.processingFormat
+            let currentFrames = AVAudioFrameCount(readFile.length)
+            let minFrames = AVAudioFrameCount(format.sampleRate * minSeconds)
+            guard currentFrames < minFrames else { return }
+
+            let silenceFrames = minFrames - currentFrames
+            os_log(.info, log: recordingLog, "padding %d silence frames (%.0fms) to meet %.1fs minimum",
+                   silenceFrames, Double(silenceFrames) / format.sampleRate * 1000, minSeconds)
+
+            // Read all original audio into buffer
+            guard let originalBuffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: currentFrames) else { return }
+            try readFile.read(into: originalBuffer)
+
+            // Create silence buffer
+            guard let silenceBuffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: silenceFrames) else { return }
+            silenceBuffer.frameLength = silenceFrames
+
+            // Write original + silence to a new temp file
+            let paddedURL = url.deletingLastPathComponent().appendingPathComponent(UUID().uuidString + "_padded.wav")
+            let writer = try AVAudioFile(forWriting: paddedURL, settings: readFile.fileFormat.settings,
+                                         commonFormat: format.commonFormat, interleaved: format.isInterleaved)
+            try writer.write(from: originalBuffer)
+            try writer.write(from: silenceBuffer)
+
+            // Replace original with padded
+            try FileManager.default.removeItem(at: url)
+            try FileManager.default.moveItem(at: paddedURL, to: url)
+        } catch {
+            os_log(.error, log: recordingLog, "failed to pad audio: %{public}@", error.localizedDescription)
         }
     }
 

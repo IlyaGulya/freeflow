@@ -60,7 +60,8 @@ enum PipelineState: Equatable {
     case starting                              // permissions ok, engine spinning up
     case initializing                          // >0.5s elapsed, dots overlay shown
     case recording                             // first audio buffer arrived, waveform
-    case transcribing(showingIndicator: Bool)   // pipeline running
+    case transcribing(showingIndicator: Bool)   // STT running
+    case postProcessing(showingIndicator: Bool) // context + LLM cleanup
     case pasting                               // done overlay visible, auto-dismiss
     case error(message: String)                // auto-clears to idle after 3s
 
@@ -72,8 +73,10 @@ enum PipelineState: Equatable {
     }
 
     var isTranscribing: Bool {
-        if case .transcribing = self { return true }
-        return false
+        switch self {
+        case .transcribing, .postProcessing: return true
+        default: return false
+        }
     }
 
     var statusText: String {
@@ -82,6 +85,7 @@ enum PipelineState: Equatable {
         case .starting, .initializing: return "Starting..."
         case .recording:               return "Recording..."
         case .transcribing:            return "Transcribing..."
+        case .postProcessing:          return "Processing..."
         case .pasting:                 return "Copied to clipboard!"
         case .error:                   return "Error"
         }
@@ -99,6 +103,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private let customContextPromptLastModifiedStorageKey = "custom_context_prompt_last_modified"
     private let transcriptionProviderStorageKey = "transcription_provider"
     private let postProcessingModelStorageKey = "post_processing_model"
+    private let postProcessingEnabledStorageKey = "post_processing_enabled"
     private let minimumRecordingDurationStorageKey = "minimum_recording_duration_ms"
     private let transcribingIndicatorDelay: TimeInterval = 1.0
     let maxPipelineHistoryCount = 20
@@ -207,6 +212,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
             UserDefaults.standard.set(selectedTranscriptionProvider.rawValue, forKey: transcriptionProviderStorageKey)
         }
     }
+    @Published var postProcessingEnabled: Bool {
+        didSet {
+            UserDefaults.standard.set(postProcessingEnabled, forKey: postProcessingEnabledStorageKey)
+        }
+    }
     @Published var postProcessingModel: String {
         didSet {
             UserDefaults.standard.set(postProcessingModel, forKey: postProcessingModelStorageKey)
@@ -272,6 +282,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         let storedMinDuration = UserDefaults.standard.double(forKey: minimumRecordingDurationStorageKey)
         self.minimumRecordingDurationMs = storedMinDuration > 0 ? storedMinDuration : 200
         self.selectedTranscriptionProvider = TranscriptionProvider(rawValue: UserDefaults.standard.string(forKey: transcriptionProviderStorageKey) ?? "") ?? .local
+        self.postProcessingEnabled = UserDefaults.standard.bool(forKey: postProcessingEnabledStorageKey)
         self.postProcessingModel = UserDefaults.standard.string(forKey: postProcessingModelStorageKey) ?? "meta-llama/llama-4-scout-17b-16e-instruct"
 
         refreshAvailableMicrophones()
@@ -310,7 +321,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         case .recording:
             audioLevelCancellable?.cancel()
             audioLevelCancellable = nil
-        case .transcribing:
+        case .transcribing, .postProcessing:
             transcribingIndicatorTask?.cancel()
             transcribingIndicatorTask = nil
         case .pasting:
@@ -371,6 +382,22 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         await MainActor.run { [weak self] in
                             guard let self, self.pipelineState.isTranscribing else { return }
                             self.transition(to: .transcribing(showingIndicator: true))
+                        }
+                    } catch {}
+                }
+            } else {
+                overlayManager.showTranscribing()
+            }
+
+        case .postProcessing(let showingIndicator):
+            if !showingIndicator {
+                let delay = transcribingIndicatorDelay
+                transcribingIndicatorTask = Task { [weak self] in
+                    do {
+                        try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                        await MainActor.run { [weak self] in
+                            guard let self, case .postProcessing = self.pipelineState else { return }
+                            self.transition(to: .postProcessing(showingIndicator: true))
                         }
                     } catch {}
                 }
@@ -730,7 +757,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 try self.audioRecorder.startRecording(deviceUID: deviceUID)
                 os_log(.info, log: recordingLog, "audioRecorder.startRecording() done: %.3fms", (CFAbsoluteTimeGetCurrent() - t0) * 1000)
                 DispatchQueue.main.async {
-                    self.startContextCapture()
+                    if self.postProcessingEnabled {
+                        self.startContextCapture()
+                    }
                     self.audioLevelCancellable = self.audioRecorder.$audioLevel
                         .receive(on: DispatchQueue.main)
                         .sink { [weak self] level in
@@ -840,10 +869,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
         errorMessage = nil
         transition(to: .transcribing(showingIndicator: false))
 
-        os_log(.info, log: recordingLog, "creating post-processing service, apiBaseURL=%{public}@, model=%{public}@", apiBaseURL, postProcessingModel)
+        os_log(.info, log: recordingLog, "creating post-processing service, apiBaseURL=%{public}@, model=%{public}@, enabled=%{public}@", apiBaseURL, postProcessingModel, postProcessingEnabled ? "true" : "false")
         let capturedTranscriptionProvider = selectedTranscriptionProvider.rawValue
         let capturedPostProcessingModel = postProcessingModel
-        let postProcessingService = apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let capturedPostProcessingEnabled = postProcessingEnabled
+        let postProcessingService = (!capturedPostProcessingEnabled || apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             ? nil
             : PostProcessingService(apiKey: apiKey, baseURL: apiBaseURL, model: postProcessingModel)
 
@@ -871,34 +901,47 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
                 os_log(.info, log: recordingLog, "rawTranscript: '%{public}@'", rawTranscript)
 
-                // Stage 2: Context resolution
-                let contextStart = CFAbsoluteTimeGetCurrent()
+                // Stage 2: Context resolution + Post-processing (only if enabled)
+                let contextDurationMs: Double
+                let postProcessingDurationMs: Double
                 let appContext: AppContext
-                if let sessionContext {
-                    os_log(.info, log: recordingLog, "using sessionContext for post-processing")
-                    appContext = sessionContext
-                } else if let inFlightContext = await inFlightContextTask?.value {
-                    os_log(.info, log: recordingLog, "using inFlightContext for post-processing")
-                    appContext = inFlightContext
-                } else {
-                    os_log(.info, log: recordingLog, "using fallbackContext for post-processing")
-                    appContext = fallbackContextAtStop()
-                }
-                let contextDurationMs = (CFAbsoluteTimeGetCurrent() - contextStart) * 1000
-                os_log(.info, log: recordingLog, "context resolution took %.1fms", contextDurationMs)
-
-                os_log(.info, log: recordingLog, "appContext: app=%{public}@, window=%{public}@, activity=%{public}@", appContext.appName ?? "nil", appContext.windowTitle ?? "nil", appContext.currentActivity)
-                await MainActor.run { [weak self] in
-                    self?.debugStatusMessage = "Running post-processing"
-                }
-
-                // Stage 3: Post-processing
-                let postProcessingStart = CFAbsoluteTimeGetCurrent()
                 let finalTranscript: String
                 let processingStatus: String
                 let postProcessingPrompt: String
                 let postProcessingReasoning: String
+
                 if let postProcessingService {
+                    // Transition to postProcessing state, carrying over indicator visibility
+                    await MainActor.run { [weak self] in
+                        guard let self else { return }
+                        if case .transcribing(let indicatorShowing) = self.pipelineState {
+                            self.transition(to: .postProcessing(showingIndicator: indicatorShowing))
+                        }
+                        self.debugStatusMessage = "Resolving context"
+                    }
+
+                    // Context resolution
+                    let contextStart = CFAbsoluteTimeGetCurrent()
+                    if let sessionContext {
+                        os_log(.info, log: recordingLog, "using sessionContext for post-processing")
+                        appContext = sessionContext
+                    } else if let inFlightContext = await inFlightContextTask?.value {
+                        os_log(.info, log: recordingLog, "using inFlightContext for post-processing")
+                        appContext = inFlightContext
+                    } else {
+                        os_log(.info, log: recordingLog, "using fallbackContext for post-processing")
+                        appContext = fallbackContextAtStop()
+                    }
+                    contextDurationMs = (CFAbsoluteTimeGetCurrent() - contextStart) * 1000
+                    os_log(.info, log: recordingLog, "context resolution took %.1fms", contextDurationMs)
+                    os_log(.info, log: recordingLog, "appContext: app=%{public}@, window=%{public}@, activity=%{public}@", appContext.appName ?? "nil", appContext.windowTitle ?? "nil", appContext.currentActivity)
+
+                    await MainActor.run { [weak self] in
+                        self?.debugStatusMessage = "Running post-processing"
+                    }
+
+                    // LLM post-processing
+                    let postProcessingStart = CFAbsoluteTimeGetCurrent()
                     do {
                         let postProcessingResult = try await postProcessingService.postProcess(
                             transcript: rawTranscript,
@@ -918,14 +961,26 @@ final class AppState: ObservableObject, @unchecked Sendable {
                         postProcessingPrompt = ""
                         postProcessingReasoning = "Error: \(error.localizedDescription)"
                     }
+                    postProcessingDurationMs = (CFAbsoluteTimeGetCurrent() - postProcessingStart) * 1000
                 } else {
-                    os_log(.info, log: recordingLog, "no API key — skipping post-processing, using raw transcript")
+                    // Post-processing disabled or no API key — use raw transcript directly
+                    inFlightContextTask?.cancel()
+                    appContext = fallbackContextAtStop()
+                    contextDurationMs = 0
+                    postProcessingDurationMs = 0
                     finalTranscript = rawTranscript
-                    processingStatus = "Post-processing skipped (no API key)"
                     postProcessingPrompt = ""
-                    postProcessingReasoning = "No API key configured"
+                    if !capturedPostProcessingEnabled {
+                        os_log(.info, log: recordingLog, "post-processing disabled — using raw transcript")
+                        processingStatus = "Post-processing disabled"
+                        postProcessingReasoning = "Post-processing disabled by user"
+                    } else {
+                        os_log(.info, log: recordingLog, "no API key — skipping post-processing, using raw transcript")
+                        processingStatus = "Post-processing skipped (no API key)"
+                        postProcessingReasoning = "No API key configured"
+                    }
                 }
-                let postProcessingDurationMs = (CFAbsoluteTimeGetCurrent() - postProcessingStart) * 1000
+
                 let totalDurationMs = (CFAbsoluteTimeGetCurrent() - pipelineStart) * 1000
                 os_log(.info, log: recordingLog, "post-processing took %.1fms, total pipeline %.1fms", postProcessingDurationMs, totalDurationMs)
 
@@ -976,6 +1031,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
                     metrics.set("context.llmMs", appContext.llmInferenceDurationMs)
                     metrics.set("postProcessing.durationMs", postProcessingDurationMs)
                     metrics.set("postProcessing.model", capturedPostProcessingModel)
+                    metrics.set("postProcessing.enabled", capturedPostProcessingEnabled)
                     metrics.set("postProcessing.skipped", postProcessingService == nil)
                     metrics.set("paste.durationMs", pasteDurationMs)
                     metrics.set("pipeline.totalMs", finalTotalDurationMs)

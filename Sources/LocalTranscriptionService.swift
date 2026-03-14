@@ -7,13 +7,21 @@ private let ltLog = OSLog(subsystem: "com.zachlatta.freeflow", category: "LocalT
 
 enum LocalTranscriptionState: Equatable {
     case notLoaded
-    case loading
+    case downloading
+    case compiling
     case ready
     case error(String)
 
     var isReady: Bool {
         if case .ready = self { return true }
         return false
+    }
+
+    var isLoading: Bool {
+        switch self {
+        case .downloading, .compiling: return true
+        default: return false
+        }
     }
 }
 
@@ -40,14 +48,19 @@ final class LocalTranscriptionService: ObservableObject, @unchecked Sendable {
     private var asrManager: AsrManager?
 
     func initialize() {
-        guard !state.isReady else { return }
+        guard !state.isReady && !state.isLoading else { return }
         os_log(.info, log: ltLog, "initialize() — starting model download/load")
-        state = .loading
+        state = .downloading
 
         Task {
             do {
-                let models = try await AsrModels.downloadAndLoad(version: .v3)
-                os_log(.info, log: ltLog, "models downloaded, initializing AsrManager")
+                os_log(.info, log: ltLog, "downloading model files...")
+                let targetDir = try await AsrModels.download(version: .v3)
+                await MainActor.run { self.state = .compiling }
+
+                os_log(.info, log: ltLog, "model files downloaded, loading/compiling CoreML models...")
+                let models = try await AsrModels.load(from: targetDir, version: .v3)
+                os_log(.info, log: ltLog, "models loaded, initializing AsrManager")
                 let manager = AsrManager(config: .default)
                 try await manager.initialize(models: models)
                 await MainActor.run {
