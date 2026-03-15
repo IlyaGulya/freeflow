@@ -1,0 +1,22 @@
+{
+  "expo": {
+    "name": "Wrenflow",
+    "slug": "wrenflow",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "bundleIdentifier": "me.gulya.wrenflow",
+      "supportsTablet": true
+    },
+    "android": {
+      "package": "me.gulya.wrenflow",
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png"
+      }
+    }
+  }
+}

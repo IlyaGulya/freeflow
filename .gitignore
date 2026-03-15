@@ -6,3 +6,6 @@ build/
 # Dolt database files (added by bd init)
 .dolt/
 *.db
+core/target
+ui/node_modules
+android/app/src/main/jniLibs

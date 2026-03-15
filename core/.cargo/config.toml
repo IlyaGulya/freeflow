@@ -1,0 +1,8 @@
+[target.aarch64-linux-android]
+linker = "/Users/ilyagulya/Library/Android/sdk/ndk/29.0.13113456/toolchains/llvm/prebuilt/darwin-x86_64/bin/aarch64-linux-android26-clang"
+ar = "/Users/ilyagulya/Library/Android/sdk/ndk/29.0.13113456/toolchains/llvm/prebuilt/darwin-x86_64/bin/llvm-ar"
+
+[env]
+CC_aarch64-linux-android = "/Users/ilyagulya/Library/Android/sdk/ndk/29.0.13113456/toolchains/llvm/prebuilt/darwin-x86_64/bin/aarch64-linux-android26-clang"
+CXX_aarch64-linux-android = "/Users/ilyagulya/Library/Android/sdk/ndk/29.0.13113456/toolchains/llvm/prebuilt/darwin-x86_64/bin/aarch64-linux-android26-clang++"
+AR_aarch64-linux-android = "/Users/ilyagulya/Library/Android/sdk/ndk/29.0.13113456/toolchains/llvm/prebuilt/darwin-x86_64/bin/llvm-ar"

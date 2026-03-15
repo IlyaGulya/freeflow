@@ -1,0 +1,58 @@
+[package]
+name = "wrenflow-windows"
+version = "0.1.0"
+edition = "2021"
+description = "Wrenflow Windows system tray app — hold a key to record, release to transcribe"
+license = "MIT"
+
+[[bin]]
+name = "wrenflow"
+path = "src/main.rs"
+
+[dependencies]
+# Wrenflow shared core (transcription pipeline, config, history, WAV encoding)
+wrenflow-core = { path = "../core/wrenflow-core" }
+
+# Win32 API bindings — feature-gated to avoid pulling the entire Windows SDK
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.58", features = [
+    # Core Win32
+    "Win32_Foundation",
+    "Win32_System_LibraryLoader",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Shell",
+    "Win32_UI_Shell_Common",
+    # Hotkey registration
+    "Win32_UI_Input_KeyboardAndMouse",
+    # Clipboard
+    "Win32_System_DataExchange",
+    "Win32_System_Memory",
+    # UI Automation
+    "Win32_UI_Accessibility",
+] }
+
+# Global hotkey management (cross-platform convenience wrapper over RegisterHotKey)
+global-hotkey = "0.6"
+
+# WASAPI audio capture via CPAL
+cpal = { version = "0.15", features = ["wasapi"] }
+
+# Async runtime (mirrors wrenflow-core's tokio dependency)
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
+
+# Logging
+log = "0.4"
+env_logger = "0.11"
+
+# Error handling
+thiserror = "2"
+anyhow = "1"
+
+# Config / serialization (shares wrenflow-core's serde)
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[build-dependencies]
+# Embed the app icon and set the Windows subsystem to "windows" so no console
+# window appears when launched from the system tray.
+winresource = "0.1"
