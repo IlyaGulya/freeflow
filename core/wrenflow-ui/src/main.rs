@@ -1,119 +1,97 @@
 mod components;
+mod platform_cards;
 mod prompts;
 mod run_log;
 mod settings;
 mod setup;
 mod theme;
 
+use std::sync::Arc;
 use dioxus::prelude::*;
 use wrenflow_core::config::AppConfig;
 use wrenflow_core::history::{HistoryEntry, HistoryStore};
+use wrenflow_core::platform::{PlatformHost, StubPlatformHost};
 use std::path::PathBuf;
 
-/// Settings tab enum — mirrors Swift's SettingsTab.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum SettingsTab {
-    General,
-    Prompts,
-    RunLog,
-}
+enum Tab { General, Prompts, RunLog }
 
-impl SettingsTab {
+impl Tab {
     fn label(self) -> &'static str {
-        match self {
-            Self::General => "General",
-            Self::Prompts => "Prompts",
-            Self::RunLog => "Run Log",
-        }
-    }
-
-    fn icon(self) -> &'static str {
-        match self {
-            Self::General => "\u{2699}",
-            Self::Prompts => "\u{1f4ac}",
-            Self::RunLog => "\u{1f4cb}",
-        }
+        match self { Self::General => "General", Self::Prompts => "Prompts", Self::RunLog => "Run Log" }
     }
 }
 
-const ALL_TABS: [SettingsTab; 3] = [SettingsTab::General, SettingsTab::Prompts, SettingsTab::RunLog];
+const TABS: [Tab; 3] = [Tab::General, Tab::Prompts, Tab::RunLog];
 
-/// CLI argument: --setup to launch setup wizard, otherwise settings.
-fn is_setup_mode() -> bool {
-    std::env::args().any(|a| a == "--setup")
-}
+fn is_setup_mode() -> bool { std::env::args().any(|a| a == "--setup") }
 
-/// Get the config file path.
-fn config_path() -> PathBuf {
-    AppConfig::default_path("Wrenflow")
-}
+fn config_path() -> PathBuf { AppConfig::default_path("Wrenflow") }
 
-/// Get the history database path.
 fn history_db_path() -> PathBuf {
-    let config_dir = config_path().parent().unwrap().to_path_buf();
-    config_dir.join("PipelineHistory.sqlite")
+    config_path().parent().unwrap().join("PipelineHistory.sqlite")
 }
+
+pub fn icon_data_url() -> String {
+    format!("data:image/png;base64,{}", theme::ICON_BASE64.trim())
+}
+
+/// Global PlatformHost instance, set before launch.
+static PLATFORM_HOST: std::sync::OnceLock<Arc<dyn PlatformHost>> = std::sync::OnceLock::new();
 
 fn main() {
     env_logger::init();
+    launch_ui(Arc::new(StubPlatformHost));
+}
 
+/// Entry point callable from native shells.
+pub fn launch_ui(host: Arc<dyn PlatformHost>) {
+    PLATFORM_HOST.set(host).ok();
     let cfg = dioxus::desktop::Config::new()
         .with_window(
             dioxus::desktop::tao::window::WindowBuilder::new()
                 .with_title("Wrenflow Settings")
-                .with_inner_size(dioxus::desktop::tao::dpi::LogicalSize::new(800.0, 600.0))
-                .with_min_inner_size(dioxus::desktop::tao::dpi::LogicalSize::new(600.0, 400.0)),
+                .with_inner_size(dioxus::desktop::tao::dpi::LogicalSize::new(780.0, 560.0))
+                .with_min_inner_size(dioxus::desktop::tao::dpi::LogicalSize::new(580.0, 380.0)),
         );
-
-    dioxus::LaunchBuilder::desktop()
-        .with_cfg(cfg)
-        .launch(App);
+    dioxus::LaunchBuilder::desktop().with_cfg(cfg).launch(App);
 }
 
 #[component]
 fn App() -> Element {
-    // Load config
+    // Provide PlatformHost to all descendants
+    let host = PLATFORM_HOST.get().expect("PlatformHost not initialized").clone();
+    use_context_provider(|| host);
+
     let config = use_signal(|| AppConfig::load_or_default(&config_path()));
-
-    // API key — stored separately for cross-platform.
-    // The native shell should inject this from secure storage in production.
     let api_key = use_signal(String::new);
+    let mut history = use_signal(Vec::<HistoryEntry>::new);
 
-    // History
-    let mut history_entries = use_signal(Vec::<HistoryEntry>::new);
-
-    // Load history on mount
     use_effect(move || {
-        let db_path = history_db_path();
-        if let Ok(store) = HistoryStore::open(&db_path) {
-            if let Ok(entries) = store.load_all() {
-                history_entries.set(entries);
-            }
+        if let Ok(store) = HistoryStore::open(&history_db_path()) {
+            if let Ok(entries) = store.load_all() { history.set(entries); }
         }
     });
 
-    // Setup vs settings mode
     let setup_mode = is_setup_mode();
-    let mut setup_complete = use_signal(|| !setup_mode);
+    let mut setup_done = use_signal(|| !setup_mode);
 
-    if !*setup_complete.read() {
+    if !*setup_done.read() {
         return rsx! {
-            style { {theme::GLOBAL_CSS} }
+            style { {theme::TAILWIND_CSS} }
             setup::SetupWizard {
-                config,
-                api_key,
+                config, api_key,
                 on_complete: move |_| {
-                    let path = config_path();
-                    let _ = config.read().save(&path);
-                    setup_complete.set(true);
+                    let _ = config.read().save(&config_path());
+                    setup_done.set(true);
                 },
             }
         };
     }
 
     rsx! {
-        style { {theme::GLOBAL_CSS} }
-        SettingsApp { config, api_key, history_entries }
+        style { {theme::TAILWIND_CSS} }
+        SettingsApp { config, api_key, history }
     }
 }
 
@@ -121,42 +99,42 @@ fn App() -> Element {
 fn SettingsApp(
     config: Signal<AppConfig>,
     api_key: Signal<String>,
-    history_entries: Signal<Vec<HistoryEntry>>,
+    history: Signal<Vec<HistoryEntry>>,
 ) -> Element {
-    let mut selected_tab = use_signal(|| SettingsTab::General);
+    let mut tab = use_signal(|| Tab::General);
+    let icon_url = icon_data_url();
 
     rsx! {
-        div { class: "settings-layout",
-            // Sidebar
-            div { class: "sidebar",
-                for tab in ALL_TABS {
+        div { class: "flex h-screen bg-mint-50 text-ash-900 text-[13px] font-[Inter,-apple-system,system-ui,sans-serif] antialiased",
+            div { class: "w-[180px] shrink-0 p-2 bg-mint-100 flex flex-col gap-px",
+                div { class: "flex items-center gap-1.5 px-2 py-1.5 mb-2",
+                    img { class: "w-4 h-4 opacity-45", src: "{icon_url}", alt: "Wrenflow" }
+                    span { class: "text-[13px] font-semibold text-ash-800", "Wrenflow" }
+                }
+                for t in TABS {
                     button {
-                        class: if *selected_tab.read() == tab { "sidebar-item active" } else { "sidebar-item" },
-                        onclick: move |_| selected_tab.set(tab),
-                        span { "{tab.icon()}" }
-                        "{tab.label()}"
+                        class: if *tab.read() == t {
+                            "w-full text-left px-2.5 py-1 h-7 rounded text-xs font-medium bg-mint-200 text-ash-900 transition-colors"
+                        } else {
+                            "w-full text-left px-2.5 py-1 h-7 rounded text-xs font-medium text-ash-600 hover:bg-mint-200 hover:text-ash-800 transition-colors"
+                        },
+                        onclick: move |_| tab.set(t),
+                        "{t.label()}"
                     }
                 }
             }
-
-            // Content
-            div { class: "content-area",
-                match *selected_tab.read() {
-                    SettingsTab::General => rsx! {
-                        settings::GeneralSettings { config, api_key }
-                    },
-                    SettingsTab::Prompts => rsx! {
-                        prompts::PromptsSettings { config, api_key }
-                    },
-                    SettingsTab::RunLog => rsx! {
+            div { class: "flex-1 overflow-y-auto p-4 max-w-[600px]",
+                match *tab.read() {
+                    Tab::General => rsx! { settings::GeneralSettings { config, api_key } },
+                    Tab::Prompts => rsx! { prompts::PromptsSettings { config, api_key } },
+                    Tab::RunLog => rsx! {
                         run_log::RunLog {
-                            history_entries,
+                            history,
                             on_clear: move |_| {
-                                let db_path = history_db_path();
-                                if let Ok(store) = HistoryStore::open(&db_path) {
+                                if let Ok(store) = HistoryStore::open(&history_db_path()) {
                                     let _ = store.clear_all();
                                 }
-                                history_entries.set(Vec::new());
+                                history.set(Vec::new());
                             },
                         }
                     },
