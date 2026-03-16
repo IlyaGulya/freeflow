@@ -2,6 +2,7 @@
 members = [
     "wrenflow-core",
     "wrenflow-ffi",
+    "wrenflow-ui",
 ]
 resolver = "2"
 

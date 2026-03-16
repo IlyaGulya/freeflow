@@ -14,7 +14,7 @@ pub enum HistoryError {
     Io(#[from] std::io::Error),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HistoryEntry {
     pub id: String,
     pub timestamp: f64,
