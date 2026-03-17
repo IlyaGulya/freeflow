@@ -75,11 +75,12 @@ pub fn default_parakeet_model() -> ModelInfo {
         name: "Parakeet TDT 0.6B".to_string(),
         repo_id: "istupakov/parakeet-tdt-0.6b-v3-onnx".to_string(),
         expected_files: vec![
-            "encoder.onnx".to_string(),
-            "decoder.onnx".to_string(),
-            "joiner.onnx".to_string(),
-            "tokenizer.json".to_string(),
+            "encoder-model.int8.onnx".to_string(),
+            "decoder_joint-model.int8.onnx".to_string(),
+            "nemo128.onnx".to_string(),
+            "vocab.txt".to_string(),
+            "config.json".to_string(),
         ],
-        download_size_bytes: Some(650_000_000), // ~650MB
+        download_size_bytes: Some(640_000_000), // ~640MB (int8 quantized)
     }
 }
