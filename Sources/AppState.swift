@@ -56,7 +56,7 @@ enum TranscriptionProvider: String, CaseIterable, Identifiable {
     }
 }
 
-enum PipelineState: Equatable {
+enum SwiftPipelineState: Equatable {
     case idle
     case starting                              // permissions ok, engine spinning up
     case initializing                          // >0.5s elapsed, dots overlay shown
@@ -167,7 +167,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
-    @Published private(set) var pipelineState: PipelineState = .idle
+    @Published private(set) var pipelineState: SwiftPipelineState = .idle
     private var initTimerSource: DispatchSourceTimer?
     private var doneResetTask: Task<Void, Never>?
     private var doneDismissWorkItem: DispatchWorkItem?
@@ -330,7 +330,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     // MARK: - Pipeline State Machine
 
-    private func transition(to newState: PipelineState) {
+    func transition(to newState: SwiftPipelineState) {
         let oldState = pipelineState
 
         // Exit actions

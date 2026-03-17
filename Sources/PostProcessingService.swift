@@ -20,7 +20,7 @@ enum PostProcessingError: LocalizedError {
     }
 }
 
-struct PostProcessingResult {
+struct SwiftPostProcessingResult {
     let transcript: String
     let prompt: String
     let reasoning: String
@@ -75,11 +75,11 @@ If the input is empty or only noise, respond: {"text": "", "reasoning": "explana
         context: AppContext,
         customVocabulary: String,
         customSystemPrompt: String = ""
-    ) async throws -> PostProcessingResult {
+    ) async throws -> SwiftPostProcessingResult {
         let vocabularyTerms = mergedVocabularyTerms(rawVocabulary: customVocabulary)
 
         let timeoutSeconds = postProcessingTimeoutSeconds
-        return try await withThrowingTaskGroup(of: PostProcessingResult.self) { group in
+        return try await withThrowingTaskGroup(of: SwiftPostProcessingResult.self) { group in
             group.addTask { [weak self] in
                 guard let self else {
                     throw PostProcessingError.invalidResponse("Post-processing service deallocated")
@@ -117,7 +117,7 @@ If the input is empty or only noise, respond: {"text": "", "reasoning": "explana
         model: String,
         customVocabulary: [String],
         customSystemPrompt: String = ""
-    ) async throws -> PostProcessingResult {
+    ) async throws -> SwiftPostProcessingResult {
         os_log(.info, log: ppLog, "process() called — transcript: '%{public}@', context: '%{public}@'", transcript, contextSummary)
         var request = URLRequest(url: URL(string: "\(baseURL)/chat/completions")!)
         request.httpMethod = "POST"
@@ -210,7 +210,7 @@ Model: \(model)
         os_log(.info, log: ppLog, "LLM raw content: '%{public}@'", content)
         let (cleanedText, reasoning) = parsePostProcessingResponse(content)
         os_log(.info, log: ppLog, "parsed text: '%{public}@', reasoning: '%{public}@'", cleanedText, reasoning)
-        return PostProcessingResult(
+        return SwiftPostProcessingResult(
             transcript: cleanedText,
             prompt: promptForDisplay,
             reasoning: reasoning
