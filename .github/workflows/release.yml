@@ -17,16 +17,26 @@ permissions:
 jobs:
   build-and-release:
     runs-on: macos-latest
+    timeout-minutes: 45
+    permissions:
+      contents: write
+    env:
+      HAS_SIGNING_CERT: ${{ secrets.DEVELOPER_ID_CERTIFICATE_BASE64 != '' }}
+      HAS_NOTARIZE: ${{ secrets.APPLE_ID != '' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Select Xcode 16
         run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@7b1c307e0dcbda6122208f10795a713336a9b35a # stable
+        with:
+          toolchain: stable
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
 
       - name: Build Rust FFI (release, universal)
         run: |
@@ -51,7 +61,6 @@ jobs:
             TAG="build-$(date -u +'%Y%m%d-%H%M%S')-${SHORT_SHA}"
           fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "Release tag: $TAG"
 
       - name: Embed build tag in Info.plist
         run: plutil -insert WrenflowBuildTag -string "${{ steps.version.outputs.tag }}" Info.plist
@@ -59,9 +68,8 @@ jobs:
       - name: Install build tools
         run: brew install create-dmg fileicon just
 
-      # Import signing certificate
       - name: Import signing certificate
-        if: ${{ secrets.DEVELOPER_ID_CERTIFICATE_BASE64 != '' }}
+        if: env.HAS_SIGNING_CERT == 'true'
         env:
           CERTIFICATE_BASE64: ${{ secrets.DEVELOPER_ID_CERTIFICATE_BASE64 }}
           CERTIFICATE_PASSWORD: ${{ secrets.DEVELOPER_ID_CERTIFICATE_PASSWORD }}
@@ -82,15 +90,14 @@ jobs:
           echo "WRENFLOW_CODESIGN_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
 
       - name: Fall back to ad-hoc signing
-        if: ${{ secrets.DEVELOPER_ID_CERTIFICATE_BASE64 == '' }}
+        if: env.HAS_SIGNING_CERT != 'true'
         run: echo "WRENFLOW_CODESIGN_IDENTITY=-" >> "$GITHUB_ENV"
 
       - name: Build release app + DMG
         run: just dmg
 
-      # Notarize (only with real signing identity)
       - name: Notarize DMG
-        if: ${{ secrets.APPLE_ID != '' }}
+        if: env.HAS_NOTARIZE == 'true'
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
@@ -114,7 +121,7 @@ jobs:
         run: mv build/Wrenflow.dmg Wrenflow.dmg
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b
+        uses: softprops/action-gh-release@c95fe1489396fe8a9eb87c0abf8aa5b2ef267fda # v2.2.1
         with:
           tag_name: ${{ steps.version.outputs.tag }}
           name: Wrenflow ${{ steps.version.outputs.tag }}
