@@ -310,6 +310,11 @@ final class AppState: ObservableObject, @unchecked Sendable {
         if hasCompletedSetup && AVCaptureDevice.authorizationStatus(for: .audio) == .authorized {
             warmUpAudioEngine()
         }
+
+        // Initialize Rust pipeline bridge
+        #if canImport(wrenflow_ffiFFI)
+        self.rustPipelineBridge = RustPipelineBridge(appState: self, overlayManager: overlayManager)
+        #endif
     }
 
     func warmUpAfterSetup() {
@@ -666,14 +671,48 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     private func handleHotkeyDown() {
         os_log(.info, log: recordingLog, "handleHotkeyDown() fired, pipelineState=%{public}@", String(describing: pipelineState))
-        guard canStartRecording else { return }
-        if pipelineState != .idle {
-            transition(to: .idle)
+
+        #if canImport(wrenflow_ffiFFI)
+        if let bridge = rustPipelineBridge {
+            // Check permissions first
+            permissionState.refresh()
+            let missing = permissionState.missingRequired
+            if !missing.isEmpty {
+                permissionSheetKinds = missing
+                return
+            }
+            // Delegate to Rust FSM
+            if bridge.handleHotkeyDown() {
+                // Rust accepted → start audio recording
+                beginRecordingForRust()
+            }
+            return
         }
+        #endif
+
+        // Fallback: Swift FSM
+        guard canStartRecording else { return }
+        if pipelineState != .idle { transition(to: .idle) }
         startRecording()
     }
 
     private func handleHotkeyUp() {
+        #if canImport(wrenflow_ffiFFI)
+        if let bridge = rustPipelineBridge {
+            guard pipelineState.isRecording else { return }
+            let result = audioRecorder.stopRecording()
+            let durationMs = result?.durationMs ?? 0
+            if bridge.handleHotkeyUp(recordingDurationMs: durationMs) {
+                // Rust accepted → run transcription
+                if let fileURL = result?.fileURL {
+                    runTranscriptionForRust(fileURL: fileURL, bridge: bridge)
+                }
+            }
+            return
+        }
+        #endif
+
+        // Fallback: Swift FSM
         guard pipelineState.isRecording else { return }
         stopAndTranscribe()
     }
@@ -762,6 +801,129 @@ final class AppState: ObservableObject, @unchecked Sendable {
             }
         }
     }
+
+    // MARK: - Rust bridge recording helpers
+
+    #if canImport(wrenflow_ffiFFI)
+    /// Start audio recording for the Rust pipeline (no Swift FSM transition).
+    private func beginRecordingForRust() {
+        errorMessage = nil
+        hasShownScreenshotPermissionAlert = false
+        let deviceUID = selectedMicrophoneID
+
+        audioRecorder.onRecordingReady = { [weak self] in
+            DispatchQueue.main.async {
+                self?.rustPipelineBridge?.onFirstAudio()
+            }
+        }
+
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { return }
+            do {
+                try self.audioRecorder.startRecording(deviceUID: deviceUID)
+                DispatchQueue.main.async {
+                    if self.postProcessingEnabled { self.startContextCapture() }
+                    self.audioLevelCancellable = self.audioRecorder.$audioLevel
+                        .receive(on: DispatchQueue.main)
+                        .sink { [weak self] level in self?.overlayManager.updateAudioLevel(level) }
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self.rustPipelineBridge?.onPipelineError(message: self.formattedRecordingStartError(error))
+                }
+            }
+        }
+    }
+
+    /// Run transcription and report result back to Rust engine.
+    private func runTranscriptionForRust(fileURL: URL, bridge: RustPipelineBridge) {
+        let provider = selectedTranscriptionProvider
+        Task {
+            do {
+                let t0 = CFAbsoluteTimeGetCurrent()
+                let transcript: String
+                switch provider {
+                case .local:
+                    transcript = try await localTranscriptionService.transcribe(fileURL: fileURL)
+                case .groq:
+                    let trimmedKey = self.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if trimmedKey.isEmpty {
+                        transcript = try await localTranscriptionService.transcribe(fileURL: fileURL)
+                    } else {
+                        transcript = try await TranscriptionService(apiKey: trimmedKey, baseURL: self.apiBaseURL).transcribe(fileURL: fileURL)
+                    }
+                }
+                let durationMs = (CFAbsoluteTimeGetCurrent() - t0) * 1000
+                await MainActor.run {
+                    bridge.onTranscriptionComplete(
+                        rawTranscript: transcript,
+                        durationMs: durationMs,
+                        provider: provider.rawValue
+                    )
+                    // If Rust says post-processing needed, run it
+                    if self.postProcessingEnabled && !transcript.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        self.runPostProcessingForRust(rawTranscript: transcript, bridge: bridge)
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    bridge.onPipelineError(message: "Transcription failed: \(error.localizedDescription)")
+                }
+            }
+        }
+    }
+
+    /// Run post-processing and report result back to Rust.
+    private func runPostProcessingForRust(rawTranscript: String, bridge: RustPipelineBridge) {
+        let service = PostProcessingService(apiKey: apiKey, baseURL: apiBaseURL, model: postProcessingModel)
+        let contextSummary = capturedContext?.contextSummary ?? ""
+        let vocab = customVocabulary
+        let customPrompt = customSystemPrompt
+
+        Task {
+            do {
+                let t0 = CFAbsoluteTimeGetCurrent()
+                let context = AppContext(
+                    appName: capturedContext?.appName ?? "",
+                    bundleIdentifier: capturedContext?.bundleIdentifier ?? "",
+                    windowTitle: capturedContext?.windowTitle ?? "",
+                    selectedText: nil, currentActivity: contextSummary,
+                    contextPrompt: nil, screenshotDataURL: capturedContext?.screenshotDataURL,
+                    screenshotMimeType: nil, screenshotError: nil, screenshotDurationMs: nil,
+                    llmInferenceDurationMs: nil, totalCaptureDurationMs: nil,
+                    screenshotWindowListMs: nil, screenshotWindowSearchMs: nil,
+                    screenshotCaptureMs: nil, screenshotScContentMs: nil, screenshotEncodeMs: nil,
+                    screenshotMethod: nil, screenshotImageWidth: nil, screenshotImageHeight: nil
+                )
+                let result = try await service.postProcess(
+                    transcript: rawTranscript, context: context,
+                    customVocabulary: vocab, customSystemPrompt: customPrompt
+                )
+                let durationMs = (CFAbsoluteTimeGetCurrent() - t0) * 1000
+                await MainActor.run {
+                    bridge.onPostProcessingComplete(
+                        rawTranscript: rawTranscript,
+                        transcript: result.transcript,
+                        prompt: result.prompt,
+                        reasoning: result.reasoning,
+                        durationMs: durationMs,
+                        status: "done"
+                    )
+                }
+            } catch {
+                await MainActor.run {
+                    bridge.onPostProcessingComplete(
+                        rawTranscript: rawTranscript,
+                        transcript: rawTranscript,
+                        prompt: "", reasoning: "",
+                        durationMs: 0,
+                        status: "Error: \(error.localizedDescription)"
+                    )
+                }
+            }
+        }
+    }
+    #endif
 
     private func formattedRecordingStartError(_ error: Error) -> String {
         if let recorderError = error as? AudioRecorderError {
