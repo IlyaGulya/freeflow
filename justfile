@@ -87,8 +87,8 @@ release: rust-release uniffi
     RES="$CONTENTS/Resources"
     mkdir -p "$MACOS" "$RES"
 
-    swift build -c release --arch arm64 --arch x86_64
-    cp .build/apple/Products/Release/Wrenflow "$MACOS/{{release_app_name}}"
+    swift build -c release --arch arm64
+    cp "$(swift build -c release --arch arm64 --show-bin-path)/Wrenflow" "$MACOS/{{release_app_name}}"
 
     cp Info.plist "$CONTENTS/"
     plutil -replace CFBundleName -string "{{release_app_name}}" "$CONTENTS/Info.plist"
@@ -97,8 +97,8 @@ release: rust-release uniffi
     plutil -replace CFBundleIdentifier -string "{{release_bundle_id}}" "$CONTENTS/Info.plist"
     cp {{icon_icns}} "$RES/"
 
-    swift build -c release --arch arm64 --arch x86_64 --product WrenflowCLI
-    cp .build/apple/Products/Release/WrenflowCLI "$MACOS/wrenflow"
+    swift build -c release --arch arm64 --product WrenflowCLI
+    cp "$(swift build -c release --arch arm64 --show-bin-path)/WrenflowCLI" "$MACOS/wrenflow"
 
     IDENTITY="{{codesign_identity}}"
     if [ "$IDENTITY" = "-" ]; then
@@ -109,7 +109,7 @@ release: rust-release uniffi
     fi
     echo "Built $BUNDLE"
 
-# Build Rust in release mode
+# Build Rust in release mode (arm64 only — ONNX Runtime lacks x86_64 prebuilt)
 rust-release:
     cd {{rust_dir}} && cargo build -p wrenflow-ffi --release
 

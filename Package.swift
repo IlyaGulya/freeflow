@@ -2,16 +2,13 @@
 import PackageDescription
 import Foundation
 
-// Resolve absolute path to Rust FFI library
 let packageDir = URL(fileURLWithPath: #filePath).deletingLastPathComponent().path
-let rustLibDir = "\(packageDir)/core/target/debug"
 
 let package = Package(
     name: "Wrenflow",
     platforms: [.macOS(.v14)],
     dependencies: [],
     targets: [
-        // C headers for the Rust UniFFI library
         .systemLibrary(
             name: "wrenflow_ffiFFI",
             path: "FFIModule"
@@ -23,10 +20,10 @@ let package = Package(
             ],
             path: "Sources",
             linkerSettings: [
-                .unsafeFlags([
-                    "-L\(rustLibDir)",
-                    "-lwrenflow_ffi",
-                ]),
+                .unsafeFlags(["-L\(packageDir)/core/target/debug", "-lwrenflow_ffi"],
+                             .when(configuration: .debug)),
+                .unsafeFlags(["-L\(packageDir)/core/target/release", "-lwrenflow_ffi"],
+                             .when(configuration: .release)),
             ]
         ),
         .executableTarget(

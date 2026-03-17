@@ -32,17 +32,8 @@ jobs:
         with:
           workspaces: core -> target
 
-      - name: Build Rust FFI
-        run: cd core && cargo build -p wrenflow-ffi --release
-
-      - name: Resolve Swift package dependencies
-        run: swift package resolve
-
-      - name: Build (swift build)
-        run: swift build -c debug
-
       - name: Install build tools
-        run: brew install create-dmg fileicon just
+        run: brew install just
 
       - name: Import signing certificate
         if: env.HAS_SIGNING_CERT == 'true'
@@ -69,11 +60,11 @@ jobs:
         if: env.HAS_SIGNING_CERT != 'true'
         run: echo "WRENFLOW_CODESIGN_IDENTITY=-" >> "$GITHUB_ENV"
 
-      - name: Build app bundle
-        run: just build
+      - name: Build release app
+        run: just release
 
       - name: Verify codesign
-        run: codesign --verify --deep --strict "build/Wrenflow Debug.app" || true
+        run: codesign --verify --deep --strict "build/Wrenflow.app" || true
 
       - name: Clean up keychain
         if: always()
@@ -82,5 +73,5 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: Wrenflow-Debug
-          path: build/Wrenflow Debug.app
+          name: Wrenflow
+          path: build/Wrenflow.app
