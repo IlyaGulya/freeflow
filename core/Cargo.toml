@@ -3,6 +3,7 @@ members = [
     "wrenflow-core",
     "wrenflow-ffi",
     "wrenflow-viewmodel",
+    "uniffi-bindgen",
 ]
 resolver = "2"
 
