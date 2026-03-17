@@ -406,6 +406,22 @@ private let UNIFFI_CALLBACK_UNEXPECTED_ERROR: Int32 = 2
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterUInt64: FfiConverterPrimitive {
+    typealias FfiType = UInt64
+    typealias SwiftType = UInt64
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> UInt64 {
+        return try lift(readInt(&buf))
+    }
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterDouble: FfiConverterPrimitive {
     typealias FfiType = Double
     typealias SwiftType = Double
@@ -1500,7 +1516,7 @@ public func FfiConverterTypeTranscriptionResult_lower(_ value: TranscriptionResu
 public enum ModelState {
     
     case notDownloaded
-    case downloading(progressFraction: Double, currentFile: String
+    case downloading(progressFraction: Double, bytesDownloaded: UInt64, totalBytes: UInt64, currentFile: String
     )
     case loading
     case ready
@@ -1525,7 +1541,7 @@ public struct FfiConverterTypeModelState: FfiConverterRustBuffer {
         
         case 1: return .notDownloaded
         
-        case 2: return .downloading(progressFraction: try FfiConverterDouble.read(from: &buf), currentFile: try FfiConverterString.read(from: &buf)
+        case 2: return .downloading(progressFraction: try FfiConverterDouble.read(from: &buf), bytesDownloaded: try FfiConverterUInt64.read(from: &buf), totalBytes: try FfiConverterUInt64.read(from: &buf), currentFile: try FfiConverterString.read(from: &buf)
         )
         
         case 3: return .loading
@@ -1547,9 +1563,11 @@ public struct FfiConverterTypeModelState: FfiConverterRustBuffer {
             writeInt(&buf, Int32(1))
         
         
-        case let .downloading(progressFraction,currentFile):
+        case let .downloading(progressFraction,bytesDownloaded,totalBytes,currentFile):
             writeInt(&buf, Int32(2))
             FfiConverterDouble.write(progressFraction, into: &buf)
+            FfiConverterUInt64.write(bytesDownloaded, into: &buf)
+            FfiConverterUInt64.write(totalBytes, into: &buf)
             FfiConverterString.write(currentFile, into: &buf)
             
         

@@ -200,7 +200,7 @@ impl FfiPipelineEngine {
 #[derive(Debug, Clone, PartialEq, uniffi::Enum)]
 pub enum ModelState {
     NotDownloaded,
-    Downloading { progress_fraction: f64, current_file: String },
+    Downloading { progress_fraction: f64, bytes_downloaded: u64, total_bytes: u64, current_file: String },
     Loading,
     Ready,
     Error { message: String },
@@ -226,6 +226,8 @@ impl wrenflow_core::model_management::ModelDownloadListener for ProgressBridge {
         let fraction = p.fraction().unwrap_or(0.0);
         self.0.on_state_changed(ModelState::Downloading {
             progress_fraction: fraction,
+            bytes_downloaded: p.bytes_downloaded,
+            total_bytes: p.total_bytes.unwrap_or(0),
             current_file: p.current_file,
         });
     }
@@ -234,6 +236,8 @@ impl wrenflow_core::model_management::ModelDownloadListener for ProgressBridge {
             wrenflow_core::model_management::LocalModelState::NotDownloaded => ModelState::NotDownloaded,
             wrenflow_core::model_management::LocalModelState::Downloading(p) => ModelState::Downloading {
                 progress_fraction: p.fraction().unwrap_or(0.0),
+                bytes_downloaded: p.bytes_downloaded,
+                total_bytes: p.total_bytes.unwrap_or(0),
                 current_file: p.current_file,
             },
             wrenflow_core::model_management::LocalModelState::Loading => ModelState::Loading,
@@ -273,7 +277,7 @@ impl FfiLocalTranscriptionEngine {
         match s {
             wrenflow_core::transcription::local::ModelState::NotLoaded => ModelState::NotDownloaded,
             wrenflow_core::transcription::local::ModelState::Downloading => ModelState::Downloading {
-                progress_fraction: 0.0, current_file: String::new(),
+                progress_fraction: 0.0, bytes_downloaded: 0, total_bytes: 0, current_file: String::new(),
             },
             wrenflow_core::transcription::local::ModelState::Compiling => ModelState::Loading,
             wrenflow_core::transcription::local::ModelState::Ready => ModelState::Ready,
@@ -296,7 +300,7 @@ impl FfiLocalTranscriptionEngine {
         let model = wrenflow_core::model_management::default_parakeet_model();
         let bridge = std::sync::Arc::new(ProgressBridge(listener));
         bridge.0.on_state_changed(ModelState::Downloading {
-            progress_fraction: 0.0, current_file: String::new(),
+            progress_fraction: 0.0, bytes_downloaded: 0, total_bytes: 0, current_file: String::new(),
         });
 
         match self.runtime.block_on(wrenflow_core::model_downloader::download_model(

@@ -20,21 +20,26 @@ codesign_identity := env("WRENFLOW_CODESIGN_IDENTITY", "-")
 # Default: build debug
 default: build
 
-# Build the full debug app (Rust + Swift + bundle)
-build: rust swift bundle
+# Build the full debug app (Rust + UniFFI + Swift + bundle)
+build: rust uniffi swift bundle
 
 # Build only Rust core + FFI
 rust:
     cd {{rust_dir}} && cargo build -p wrenflow-ffi
 
-# Generate UniFFI Swift bindings
+# Generate UniFFI Swift bindings + copy C header
 uniffi: rust
-    @mkdir -p Sources/Generated
-    cd {{rust_dir}} && cargo run -p uniffi-bindgen generate \
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mkdir -p Sources/Generated FFIModule
+    cd {{rust_dir}}
+    cargo run -p uniffi-bindgen generate \
         --library target/debug/libwrenflow_ffi.dylib \
         --language swift \
         --out-dir ../Sources/Generated
-    @echo "Generated UniFFI bindings in Sources/Generated/"
+    cd ..
+    cp Sources/Generated/wrenflow_ffiFFI.h FFIModule/wrenflow_ffiFFI.h
+    echo "Generated UniFFI bindings"
 
 # Build Swift app
 swift:
@@ -73,7 +78,7 @@ run-setup: build
     open "{{app_bundle}}"
 
 # Build release (universal binary, hardened runtime, signed)
-release: rust-release
+release: rust-release uniffi
     #!/usr/bin/env bash
     set -euo pipefail
     BUNDLE="{{release_bundle}}"

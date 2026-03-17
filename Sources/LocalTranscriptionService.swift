@@ -7,9 +7,16 @@ import wrenflow_ffiFFI
 
 private let ltLog = OSLog(subsystem: "me.gulya.wrenflow", category: "LocalTranscription")
 
+struct DownloadProgressInfo: Equatable {
+    var fraction: Double = 0
+    var bytesDownloaded: UInt64 = 0
+    var totalBytes: UInt64? = nil
+    var currentFile: String = ""
+}
+
 enum LocalTranscriptionState: Equatable {
     case notLoaded
-    case downloading(progress: Double)
+    case downloading(DownloadProgressInfo)
     case compiling
     case ready
     case error(String)
@@ -22,18 +29,6 @@ enum LocalTranscriptionState: Equatable {
     var isLoading: Bool {
         switch self {
         case .downloading, .compiling: return true
-        default: return false
-        }
-    }
-
-    // Backward compat for UI that checks == .downloading without associated value
-    static func == (lhs: LocalTranscriptionState, rhs: LocalTranscriptionState) -> Bool {
-        switch (lhs, rhs) {
-        case (.notLoaded, .notLoaded): return true
-        case (.downloading, .downloading): return true
-        case (.compiling, .compiling): return true
-        case (.ready, .ready): return true
-        case (.error(let a), .error(let b)): return a == b
         default: return false
         }
     }
@@ -97,7 +92,7 @@ final class LocalTranscriptionService: ObservableObject, @unchecked Sendable {
         }
         self.progressListener = listener
 
-        state = .downloading(progress: 0)
+        state = .downloading(DownloadProgressInfo())
 
         // Run on background thread (download + load are blocking)
         let modelDir = self.modelDir
@@ -140,8 +135,13 @@ final class LocalTranscriptionService: ObservableObject, @unchecked Sendable {
         switch ffiState {
         case .notDownloaded:
             state = .notLoaded
-        case let .downloading(fraction, _):
-            state = .downloading(progress: fraction)
+        case let .downloading(fraction, bytesDown, totalBytes, file):
+            state = .downloading(DownloadProgressInfo(
+                fraction: fraction,
+                bytesDownloaded: bytesDown,
+                totalBytes: totalBytes > 0 ? totalBytes : nil,
+                currentFile: file
+            ))
         case .loading:
             state = .compiling
         case .ready:

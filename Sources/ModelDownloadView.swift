@@ -25,10 +25,10 @@ struct ModelDownloadView: View {
             VStack(alignment: .leading, spacing: 8) {
                 switch localTranscriptionService.state {
                 case .notLoaded:
-                    downloadContent(progress: 0, status: "Preparing...")
+                    downloadContent(info: DownloadProgressInfo(), status: "Preparing...")
 
-                case .downloading(let progress):
-                    downloadContent(progress: progress, status: downloadStatus(progress))
+                case .downloading(let info):
+                    downloadContent(info: info, status: downloadStatus(info))
 
                 case .compiling:
                     Text("Loading model")
@@ -98,13 +98,13 @@ struct ModelDownloadView: View {
 
     // MARK: - Download content
 
-    private func downloadContent(progress: Double, status: String) -> some View {
+    private func downloadContent(info: DownloadProgressInfo, status: String) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Downloading model")
                 .font(WrenflowStyle.title())
                 .foregroundColor(WrenflowStyle.text)
 
-            WrenflowProgressBar(progress: progress)
+            WrenflowProgressBar(progress: min(info.fraction, 1.0))
 
             Text(status)
                 .font(WrenflowStyle.mono())
@@ -114,10 +114,14 @@ struct ModelDownloadView: View {
 
     // MARK: - Helpers
 
-    private func downloadStatus(_ progress: Double) -> String {
-        if progress > 0 {
-            let pct = min(Int(progress * 100), 100)
-            return "\(pct)%"
+    private func downloadStatus(_ info: DownloadProgressInfo) -> String {
+        let mbDown = Int(info.bytesDownloaded / 1_000_000)
+        if let total = info.totalBytes {
+            let mbTotal = Int(total / 1_000_000)
+            let pct = min(Int(info.fraction * 100), 100)
+            return "\(mbDown) / \(mbTotal) MB · \(pct)%"
+        } else if mbDown > 0 {
+            return "\(mbDown) MB"
         } else {
             return "Starting..."
         }

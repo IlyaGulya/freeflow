@@ -470,18 +470,18 @@ struct GeneralSettingsView: View {
                     .font(.caption)
                 }
 
-            case .downloading(let progress):
+            case .downloading(let info):
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
                         Text("Downloading...")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                         Spacer()
-                        Text("\(Int(progress * 100))%")
+                        Text(settingsDownloadStatus(info))
                             .font(.system(.caption, design: .monospaced))
                             .foregroundStyle(.secondary)
                     }
-                    ProgressView(value: progress)
+                    ProgressView(value: min(info.fraction, 1.0))
                         .progressViewStyle(.linear)
                         .tint(.accentColor)
                     Button("Cancel") {
@@ -528,6 +528,18 @@ struct GeneralSettingsView: View {
                 }
             }
         }
+    }
+
+    private func settingsDownloadStatus(_ info: DownloadProgressInfo) -> String {
+        let mbDown = Int(info.bytesDownloaded / 1_000_000)
+        if let total = info.totalBytes {
+            let mbTotal = Int(total / 1_000_000)
+            let pct = min(Int(info.fraction * 100), 100)
+            return "\(mbDown)/\(mbTotal) MB · \(pct)%"
+        } else if mbDown > 0 {
+            return "\(mbDown) MB"
+        }
+        return "0%"
     }
 
     // MARK: API Key
