@@ -1,5 +1,6 @@
 import Foundation
 import Combine
+import SwiftUI
 import AppKit
 import AVFoundation
 import CoreAudio
@@ -177,7 +178,17 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     @Published var lastTranscript: String = ""
     @Published var errorMessage: String?
-    @Published var hasAccessibility = false
+    /// Single source of truth for all permission states.
+    let permissionState = PermissionStateObservable()
+
+    /// Set when startRecording() detects missing permissions.
+    /// The view layer observes this and shows a sheet. Set to nil to dismiss.
+    @Published var permissionSheetKinds: [PermissionKind]?
+
+    /// Computed from permissionState for backward compat.
+    var hasAccessibility: Bool {
+        permissionState.get(.accessibility).isSatisfied
+    }
     @Published var isDebugOverlayActive = false
     @Published var selectedSettingsTab: SettingsTab? = .general
     @Published var pipelineHistory: [PipelineHistoryItem] = []
@@ -190,7 +201,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
     @Published var lastPostProcessingStatus = ""
     @Published var lastContextScreenshotDataURL: String? = nil
     @Published var lastContextScreenshotStatus = "No screenshot"
-    @Published var hasScreenRecordingPermission = false
+    var hasScreenRecordingPermission: Bool {
+        permissionState.get(.screenRecording).isSatisfied
+    }
     @Published var launchAtLogin: Bool {
         didSet { setLaunchAtLogin(launchAtLogin) }
     }
@@ -275,8 +288,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         self.customSystemPromptLastModified = customSystemPromptLastModified
         self.customContextPromptLastModified = customContextPromptLastModified
         self.pipelineHistory = savedHistory
-        self.hasAccessibility = initialAccessibility
-        self.hasScreenRecordingPermission = initialScreenCapturePermission
+        // hasAccessibility and hasScreenRecordingPermission are now computed from permissionState
         self.launchAtLogin = SMAppService.mainApp.status == .enabled
         self.selectedMicrophoneID = selectedMicrophoneID
         let storedMinDuration = UserDefaults.standard.double(forKey: minimumRecordingDurationStorageKey)
@@ -293,13 +305,15 @@ final class AppState: ObservableObject, @unchecked Sendable {
             localTranscriptionService.initialize()
         }
 
-        // Pre-warm audio engine only after setup is complete
-        if hasCompletedSetup {
+        // Pre-warm audio engine only if setup is complete AND mic is already authorized.
+        // Accessing AVAudioEngine.inputNode triggers the system mic dialog if undetermined.
+        if hasCompletedSetup && AVCaptureDevice.authorizationStatus(for: .audio) == .authorized {
             warmUpAudioEngine()
         }
     }
 
     func warmUpAfterSetup() {
+        guard AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else { return }
         warmUpAudioEngine()
     }
 
@@ -543,30 +557,21 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
+    /// Start permission polling. Delegates to the single PermissionStateObservable.
     func startAccessibilityPolling() {
-        accessibilityTimer?.invalidate()
-        hasAccessibility = AXIsProcessTrusted()
-        hasScreenRecordingPermission = hasScreenCapturePermission()
-        accessibilityTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
-            DispatchQueue.main.async {
-                self?.hasAccessibility = AXIsProcessTrusted()
-                self?.hasScreenRecordingPermission = self?.hasScreenCapturePermission() ?? false
-            }
-        }
+        permissionState.startPolling()
     }
 
     func stopAccessibilityPolling() {
-        accessibilityTimer?.invalidate()
-        accessibilityTimer = nil
+        permissionState.stopPolling()
     }
 
     func openAccessibilitySettings() {
-        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
-        AXIsProcessTrustedWithOptions(options)
+        permissionState.request(.accessibility)
     }
 
     func hasScreenCapturePermission() -> Bool {
-        CGPreflightScreenCaptureAccess()
+        permissionState.get(.screenRecording).isSatisfied
     }
 
     func requestScreenCapturePermission() {
@@ -575,11 +580,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
         // running app (unlike the legacy CGWindowListCreateImage path).
         SCShareableContent.getExcludingDesktopWindows(false, onScreenWindowsOnly: false) { [weak self] _, _ in
             DispatchQueue.main.async {
-                self?.hasScreenRecordingPermission = CGPreflightScreenCaptureAccess()
+                self?.permissionState.refresh()
             }
         }
-
-        hasScreenRecordingPermission = CGPreflightScreenCaptureAccess()
     }
 
     func openScreenCaptureSettings() {
@@ -703,40 +706,20 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private func startRecording() {
         let t0 = CFAbsoluteTimeGetCurrent()
         os_log(.info, log: recordingLog, "startRecording() entered")
-        guard hasAccessibility else {
-            errorMessage = "Accessibility permission required. Grant access in System Settings > Privacy & Security > Accessibility."
-            showAccessibilityAlert()
+
+        // Check all required permissions via single source of truth
+        permissionState.refresh()
+        let missing = permissionState.missingRequired
+        if !missing.isEmpty {
+            os_log(.info, log: recordingLog, "missing permissions: %{public}@", missing.map(\.label).joined(separator: ", "))
+            // Set the published property — the view layer reacts and shows a sheet
+            permissionSheetKinds = missing
             return
         }
-        os_log(.info, log: recordingLog, "accessibility check passed: %.3fms", (CFAbsoluteTimeGetCurrent() - t0) * 1000)
-        guard ensureMicrophoneAccess() else { return }
-        os_log(.info, log: recordingLog, "mic access check passed: %.3fms", (CFAbsoluteTimeGetCurrent() - t0) * 1000)
+
+        os_log(.info, log: recordingLog, "all permissions OK: %.3fms", (CFAbsoluteTimeGetCurrent() - t0) * 1000)
         beginRecording()
         os_log(.info, log: recordingLog, "startRecording() finished: %.3fms", (CFAbsoluteTimeGetCurrent() - t0) * 1000)
-    }
-
-    private func ensureMicrophoneAccess() -> Bool {
-        let status = AVCaptureDevice.authorizationStatus(for: .audio)
-        switch status {
-        case .authorized:
-            return true
-        case .notDetermined:
-            AVCaptureDevice.requestAccess(for: .audio) { [weak self] granted in
-                DispatchQueue.main.async {
-                    if granted {
-                        self?.beginRecording()
-                    } else {
-                        self?.errorMessage = "Microphone permission denied. Grant access in System Settings > Privacy & Security > Microphone."
-                        self?.showMicrophonePermissionAlert()
-                    }
-                }
-            }
-            return false
-        default:
-            errorMessage = "Microphone permission denied. Grant access in System Settings > Privacy & Security > Microphone."
-            showMicrophonePermissionAlert()
-            return false
-        }
     }
 
     private func beginRecording() {
@@ -796,39 +779,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
 
         return "Failed to start recording: \(error.localizedDescription)"
-    }
-
-    func showMicrophonePermissionAlert() {
-        let alert = NSAlert()
-        alert.messageText = "Microphone Permission Required"
-        alert.informativeText = "Wrenflow cannot record audio without Microphone access.\n\nGo to System Settings > Privacy & Security > Microphone and enable Wrenflow."
-        alert.alertStyle = .critical
-        alert.addButton(withTitle: "Open System Settings")
-        alert.addButton(withTitle: "Dismiss")
-        alert.icon = NSImage(systemSymbolName: "mic.fill", accessibilityDescription: nil)
-
-        let response = alert.runModal()
-        if response == .alertFirstButtonReturn {
-            let settingsURL = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")
-            if let url = settingsURL {
-                NSWorkspace.shared.open(url)
-            }
-        }
-    }
-
-    func showAccessibilityAlert() {
-        let alert = NSAlert()
-        alert.messageText = "Accessibility Permission Required"
-        alert.informativeText = "Wrenflow cannot type transcriptions without Accessibility access.\n\nGo to System Settings > Privacy & Security > Accessibility and enable Wrenflow."
-        alert.alertStyle = .critical
-        alert.addButton(withTitle: "Open System Settings")
-        alert.addButton(withTitle: "Dismiss")
-        alert.icon = NSImage(systemSymbolName: "exclamationmark.triangle.fill", accessibilityDescription: nil)
-
-        let response = alert.runModal()
-        if response == .alertFirstButtonReturn {
-            openAccessibilitySettings()
-        }
     }
 
     private func stopAndTranscribe() {

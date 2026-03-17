@@ -204,7 +204,7 @@ struct SetupView: View {
 
             VStack(spacing: 10) {
                 HStack(spacing: 8) {
-                    AsyncImage(url: URL(string: "https://avatars.githubusercontent.com/u/992248")) { phase in
+                    AsyncImage(url: URL(string: "https://avatars.githubusercontent.com/u/668727")) { phase in
                         switch phase {
                         case .success(let image):
                             image.resizable().aspectRatio(contentMode: .fill)
@@ -767,11 +767,11 @@ struct SetupView: View {
 
                 case .done:
                     VStack(spacing: 16) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 60))
-                            .foregroundStyle(.green)
-
                         if let error = testError {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 60))
+                                .foregroundStyle(.red)
+
                             Text("Something went wrong")
                                 .font(.title2)
                                 .fontWeight(.semibold)
@@ -785,6 +785,10 @@ struct SetupView: View {
                                 .font(.callout)
                                 .foregroundStyle(.secondary)
                         } else if testTranscript.isEmpty {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.system(size: 60))
+                                .foregroundStyle(.green)
+
                             Text("No speech detected")
                                 .font(.title2)
                                 .fontWeight(.semibold)
@@ -794,6 +798,10 @@ struct SetupView: View {
                                 .font(.callout)
                                 .foregroundStyle(.secondary)
                         } else {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.system(size: 60))
+                                .foregroundStyle(.green)
+
                             Text("Perfect — Wrenflow is ready to go.")
                                 .font(.title2)
                                 .fontWeight(.semibold)
@@ -957,14 +965,28 @@ struct SetupView: View {
         }
     }
 
+    private func shouldSkipStep(_ step: SetupStep) -> Bool {
+        // Skip screen recording if post-processing is not possible (no API key)
+        if step == .screenRecording && appState.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return true
+        }
+        return false
+    }
+
     private func previousStep(_ step: SetupStep) -> SetupStep {
-        let previous = SetupStep(rawValue: step.rawValue - 1)
-        return previous ?? .welcome
+        var candidate = SetupStep(rawValue: step.rawValue - 1) ?? .welcome
+        while shouldSkipStep(candidate), let prev = SetupStep(rawValue: candidate.rawValue - 1) {
+            candidate = prev
+        }
+        return candidate
     }
 
     private func nextStep(_ step: SetupStep) -> SetupStep {
-        let next = SetupStep(rawValue: step.rawValue + 1)
-        return next ?? .ready
+        var candidate = SetupStep(rawValue: step.rawValue + 1) ?? .ready
+        while shouldSkipStep(candidate), let next = SetupStep(rawValue: candidate.rawValue + 1) {
+            candidate = next
+        }
+        return candidate
     }
 
     func checkMicPermission() {
@@ -1004,10 +1026,9 @@ struct SetupView: View {
 
     func startScreenRecordingPolling() {
         screenRecordingTimer?.invalidate()
+        // Screen recording polling handled by appState.permissionState
         screenRecordingTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
-            DispatchQueue.main.async {
-                appState.hasScreenRecordingPermission = CGPreflightScreenCaptureAccess()
-            }
+            // no-op — permissionState polls automatically
         }
     }
 

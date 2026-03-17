@@ -1,13 +1,11 @@
 //! Setup Wizard ViewModel — state machine for the onboarding flow.
-//!
-//! The wizard steps are dynamic based on platform capabilities.
-//! Each native UI renders these steps in its own way
-//! (accordion, paged, etc.) but the state logic is shared.
 
 use std::sync::Arc;
 use wrenflow_core::config::AppConfig;
 use wrenflow_core::http_client;
-use wrenflow_core::platform::{PlatformCapabilities, PlatformHost, PermissionStatus};
+use wrenflow_core::platform::{
+    OsPermissionStatus, PlatformCapabilities, PlatformHost, PermissionKind,
+};
 
 // ---------------------------------------------------------------------------
 // Step definitions
@@ -29,37 +27,31 @@ pub enum WizardStep {
 }
 
 impl WizardStep {
-    /// Build the step list based on platform capabilities.
     pub fn steps_for(caps: &PlatformCapabilities) -> Vec<WizardStep> {
         let mut s = vec![
             WizardStep::Welcome,
             WizardStep::TranscriptionProvider,
             WizardStep::ApiKey,
+            WizardStep::MicrophonePermission,
+            WizardStep::Accessibility,
+            WizardStep::ScreenRecording,
         ];
-        if caps.permissions {
-            s.push(WizardStep::MicrophonePermission);
-            s.push(WizardStep::Accessibility);
-            s.push(WizardStep::ScreenRecording);
-        }
         s.push(WizardStep::Hotkey);
         s.push(WizardStep::Vocabulary);
         if caps.launch_at_login {
             s.push(WizardStep::LaunchAtLogin);
         }
-        // TestTranscription requires audio + hotkey — only if platform supports it
-        // (not included by default; native shell can add it)
         s.push(WizardStep::Ready);
         s
     }
 
-    /// Whether this step can be skipped.
     pub fn skippable(self) -> bool {
         matches!(
             self,
             WizardStep::ApiKey
                 | WizardStep::Vocabulary
-                | WizardStep::LaunchAtLogin
                 | WizardStep::ScreenRecording
+                | WizardStep::TestTranscription
         )
     }
 
@@ -78,6 +70,16 @@ impl WizardStep {
             Self::Ready => "Ready",
         }
     }
+
+    /// The permission kind this step grants, if any.
+    pub fn permission_kind(self) -> Option<PermissionKind> {
+        match self {
+            Self::MicrophonePermission => Some(PermissionKind::Microphone),
+            Self::Accessibility => Some(PermissionKind::Accessibility),
+            Self::ScreenRecording => Some(PermissionKind::ScreenRecording),
+            _ => None,
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -91,7 +93,7 @@ pub struct WizardViewModel {
     config_path: std::path::PathBuf,
     pub host: Arc<dyn PlatformHost>,
 
-    // -- API Key validation state --
+    // API Key validation
     pub api_key: String,
     pub api_key_validating: bool,
     pub api_key_error: Option<String>,
@@ -141,33 +143,22 @@ impl WizardViewModel {
         }
     }
 
-    pub fn go_to(&mut self, index: usize) {
-        if index < self.steps.len() {
-            self.current_index = index;
-        }
-    }
-
     pub fn complete(&self) {
         let _ = self.config.save(&self.config_path);
     }
 
-    // -- Permission helpers --
+    // -- Permission helpers using the new generic API --
 
-    pub fn get_permission_status(&self, step: WizardStep) -> PermissionStatus {
-        match step {
-            WizardStep::MicrophonePermission => self.host.get_microphone_permission(),
-            WizardStep::Accessibility => self.host.get_accessibility_permission(),
-            WizardStep::ScreenRecording => self.host.get_screen_recording_permission(),
-            _ => PermissionStatus::NotApplicable,
+    pub fn get_permission_status(&self, step: WizardStep) -> OsPermissionStatus {
+        match step.permission_kind() {
+            Some(kind) => self.host.get_permission(kind),
+            None => OsPermissionStatus::NotApplicable,
         }
     }
 
     pub fn request_permission(&self, step: WizardStep) {
-        match step {
-            WizardStep::MicrophonePermission => self.host.request_microphone_permission(),
-            WizardStep::Accessibility => self.host.request_accessibility_permission(),
-            WizardStep::ScreenRecording => self.host.request_screen_recording_permission(),
-            _ => {}
+        if let Some(kind) = step.permission_kind() {
+            self.host.request_permission(kind);
         }
     }
 

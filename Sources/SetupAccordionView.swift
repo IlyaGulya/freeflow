@@ -275,9 +275,8 @@ struct SetupAccordionView: View {
             customVocabularyInput = appState.customVocabulary
             checkMicPermission()
             accessibilityGranted = AXIsProcessTrusted()
-            appState.hasScreenRecordingPermission = CGPreflightScreenCaptureAccess()
-            startAccessibilityPolling()
-            startScreenRecordingPolling()
+            // Permission polling is handled by appState.permissionState
+            appState.startAccessibilityPolling()
         }
         .onDisappear {
             accessibilityTimer?.invalidate()
@@ -637,12 +636,7 @@ struct SetupAccordionView: View {
         }
     }
 
-    private func startScreenRecordingPolling() {
-        screenRecordingTimer?.invalidate()
-        screenRecordingTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in
-            DispatchQueue.main.async { appState.hasScreenRecordingPermission = CGPreflightScreenCaptureAccess() }
-        }
-    }
+    // Screen recording polling is now handled by appState.permissionState
 
     private func startTestHotkeyMonitoring() {
         print("[SetupWizard] startTestHotkeyMonitoring called, starting hotkey: \(appState.selectedHotkey)")

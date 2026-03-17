@@ -1,12 +1,57 @@
-//! Platform host abstraction for settings UI.
+//! Platform abstraction layer.
 //!
-//! The native shell (macOS, Windows, Android) implements this trait
-//! and provides it to wrenflow-ui via Dioxus context.
-//! All methods have default no-op implementations so platforms only
-//! override what they support.
+//! Defines the cross-platform types and traits that native shells implement.
 
 // ---------------------------------------------------------------------------
-// Shared data types
+// Permissions FSM
+// ---------------------------------------------------------------------------
+
+/// Every permission the app may need, across all platforms.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum PermissionKind {
+    Microphone,
+    Accessibility,
+    ScreenRecording,
+}
+
+/// What the OS reports for a single permission.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OsPermissionStatus {
+    Granted,
+    NotGranted,
+    Denied,
+    NotApplicable,
+}
+
+/// The lifecycle state of a single permission (FSM).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PermissionState {
+    /// Haven't checked yet.
+    Unknown,
+    /// OS says not granted, user hasn't been prompted.
+    NotGranted,
+    /// The OS prompt is showing or we opened System Settings.
+    Requesting,
+    /// Permission granted.
+    Granted,
+    /// User explicitly denied.
+    Denied,
+    /// Permission doesn't exist on this platform.
+    NotApplicable,
+}
+
+impl PermissionState {
+    pub fn is_satisfied(self) -> bool {
+        matches!(self, Self::Granted | Self::NotApplicable)
+    }
+
+    pub fn is_blocking(self) -> bool {
+        matches!(self, Self::Unknown | Self::NotGranted | Self::Requesting | Self::Denied)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Other shared types
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, PartialEq)]
@@ -22,14 +67,6 @@ pub enum LocalModelState {
     Compiling,
     Ready,
     Error(String),
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum PermissionStatus {
-    Granted,
-    NotGranted,
-    /// Platform doesn't have this permission concept.
-    NotApplicable,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -54,14 +91,12 @@ pub struct CliToolStatus {
 // Capability flags
 // ---------------------------------------------------------------------------
 
-/// Which optional platform features are supported.
 #[derive(Debug, Clone, Default)]
 pub struct PlatformCapabilities {
     pub launch_at_login: bool,
     pub updates: bool,
     pub local_transcription: bool,
     pub microphone_selection: bool,
-    pub permissions: bool,
     pub cli_tool: bool,
 }
 
@@ -69,18 +104,21 @@ pub struct PlatformCapabilities {
 // PlatformHost trait
 // ---------------------------------------------------------------------------
 
-/// Callback interface for platform-specific settings operations.
-/// The native layer implements this trait and passes it into the Dioxus
-/// app via `provide_context`.
+/// Platform-specific operations. Each native shell implements this.
 pub trait PlatformHost: Send + Sync + 'static {
-    /// Declare which optional features this platform supports.
     fn capabilities(&self) -> PlatformCapabilities;
+
+    // -- Permissions (generic, 2 methods for all permission types) --
+
+    fn get_permission(&self, _kind: PermissionKind) -> OsPermissionStatus {
+        OsPermissionStatus::NotApplicable
+    }
+    fn request_permission(&self, _kind: PermissionKind) {}
 
     // -- Launch at Login --
 
     fn get_launch_at_login(&self) -> bool { false }
     fn set_launch_at_login(&self, _enabled: bool) {}
-    /// macOS: SMAppService may require approval in System Settings.
     fn launch_at_login_requires_approval(&self) -> bool { false }
     fn open_launch_at_login_settings(&self) {}
 
@@ -104,17 +142,6 @@ pub trait PlatformHost: Send + Sync + 'static {
     fn list_microphones(&self) -> Vec<AudioDevice> { vec![] }
     fn refresh_microphones(&self) {}
 
-    // -- Permissions --
-
-    fn get_microphone_permission(&self) -> PermissionStatus { PermissionStatus::NotApplicable }
-    fn request_microphone_permission(&self) {}
-
-    fn get_accessibility_permission(&self) -> PermissionStatus { PermissionStatus::NotApplicable }
-    fn request_accessibility_permission(&self) {}
-
-    fn get_screen_recording_permission(&self) -> PermissionStatus { PermissionStatus::NotApplicable }
-    fn request_screen_recording_permission(&self) {}
-
     // -- CLI Tool --
 
     fn get_cli_status(&self) -> CliToolStatus { CliToolStatus { installed: false, path: None } }
@@ -122,10 +149,9 @@ pub trait PlatformHost: Send + Sync + 'static {
 }
 
 // ---------------------------------------------------------------------------
-// Stub (all capabilities disabled)
+// Stub
 // ---------------------------------------------------------------------------
 
-/// No-op implementation for standalone dev/testing.
 pub struct StubPlatformHost;
 
 impl PlatformHost for StubPlatformHost {

@@ -18,7 +18,7 @@ struct MenuBarView: View {
 
             Divider()
 
-            if !appState.hasScreenRecordingPermission {
+            if appState.postProcessingEnabled && !appState.hasScreenRecordingPermission {
                 Button {
                     appState.requestScreenCapturePermission()
                 } label: {
@@ -38,7 +38,7 @@ struct MenuBarView: View {
             // Accessibility warning
             if !appState.hasAccessibility {
                 Button {
-                    appState.showAccessibilityAlert()
+                    appState.openAccessibilitySettings()
                 } label: {
                     Label("Accessibility Required", systemImage: "exclamationmark.triangle.fill")
                 }

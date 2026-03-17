@@ -9,3 +9,13 @@ build/
 core/target
 ui/node_modules
 android/app/src/main/jniLibs
+.build/
+windows/target/
+windows/Cargo.lock
+core/wrenflow-ui/node_modules/
+ANALYSIS.md
+ANDROID_ARCHITECTURE.md
+DEEP_ANALYSIS.md
+FORK_ANALYSIS.md
+IMPROVEMENTS.md
+RUST_MIGRATION_PLAN.md
