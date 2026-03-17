@@ -490,6 +490,11 @@ fileprivate struct FfiConverterString: FfiConverter {
 public protocol FfiLocalTranscriptionEngineProtocol: AnyObject, Sendable {
     
     /**
+     * Cancel an ongoing download.
+     */
+    func cancelDownload() 
+    
+    /**
      * Download model files (blocking — call from background thread).
      * Reports progress via listener.
      */
@@ -579,6 +584,15 @@ public convenience init() {
 
     
 
+    
+    /**
+     * Cancel an ongoing download.
+     */
+open func cancelDownload()  {try! rustCall() {
+    uniffi_wrenflow_ffi_fn_method_ffilocaltranscriptionengine_cancel_download(self.uniffiClonePointer(),$0
+    )
+}
+}
     
     /**
      * Download model files (blocking — call from background thread).
@@ -2148,6 +2162,9 @@ private let initializationResult: InitializationResult = {
     let scaffolding_contract_version = ffi_wrenflow_ffi_uniffi_contract_version()
     if bindings_contract_version != scaffolding_contract_version {
         return InitializationResult.contractVersionMismatch
+    }
+    if (uniffi_wrenflow_ffi_checksum_method_ffilocaltranscriptionengine_cancel_download() != 33571) {
+        return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_wrenflow_ffi_checksum_method_ffilocaltranscriptionengine_download_model() != 18877) {
         return InitializationResult.apiChecksumMismatch

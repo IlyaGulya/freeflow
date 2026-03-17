@@ -74,6 +74,9 @@ final class LocalTranscriptionService: ObservableObject, @unchecked Sendable {
 
     func cancel() {
         cancelled = true
+        #if canImport(wrenflow_ffiFFI)
+        engine?.cancelDownload()
+        #endif
         state = .notLoaded
         os_log(.info, log: ltLog, "cancelled")
     }

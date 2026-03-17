@@ -13,8 +13,6 @@ pub struct ModelInfo {
     pub repo_id: String,
     /// Expected files in the model directory.
     pub expected_files: Vec<String>,
-    /// Approximate total download size in bytes (for UI display).
-    pub download_size_bytes: Option<u64>,
 }
 
 /// Progress of an ongoing download.
@@ -81,6 +79,5 @@ pub fn default_parakeet_model() -> ModelInfo {
             "vocab.txt".to_string(),
             "config.json".to_string(),
         ],
-        download_size_bytes: Some(640_000_000), // ~640MB (int8 quantized)
     }
 }

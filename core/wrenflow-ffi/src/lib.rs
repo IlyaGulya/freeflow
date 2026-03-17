@@ -248,6 +248,7 @@ impl wrenflow_core::model_management::ModelDownloadListener for ProgressBridge {
 pub struct FfiLocalTranscriptionEngine {
     inner: std::sync::Mutex<wrenflow_core::transcription_local::LocalTranscriptionEngine>,
     runtime: tokio::runtime::Runtime,
+    cancel_flag: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
 #[uniffi::export]
@@ -257,7 +258,13 @@ impl FfiLocalTranscriptionEngine {
         Self {
             inner: std::sync::Mutex::new(wrenflow_core::transcription_local::LocalTranscriptionEngine::new()),
             runtime: tokio::runtime::Runtime::new().expect("tokio runtime"),
+            cancel_flag: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
+    }
+
+    /// Cancel an ongoing download.
+    pub fn cancel_download(&self) {
+        self.cancel_flag.store(true, std::sync::atomic::Ordering::Relaxed);
     }
 
     /// Current model state.
@@ -283,6 +290,9 @@ impl FfiLocalTranscriptionEngine {
     /// Download model files (blocking — call from background thread).
     /// Reports progress via listener.
     pub fn download_model(&self, model_dir: String, listener: Box<dyn FfiModelProgressListener>) -> Option<String> {
+        // Reset cancel flag
+        self.cancel_flag.store(false, std::sync::atomic::Ordering::Relaxed);
+
         let model = wrenflow_core::model_management::default_parakeet_model();
         let bridge = std::sync::Arc::new(ProgressBridge(listener));
         bridge.0.on_state_changed(ModelState::Downloading {
@@ -293,6 +303,7 @@ impl FfiLocalTranscriptionEngine {
             &model,
             std::path::Path::new(&model_dir),
             bridge,
+            self.cancel_flag.clone(),
         )) {
             Ok(_) => None,
             Err(e) => Some(e),

@@ -115,9 +115,8 @@ struct ModelDownloadView: View {
     // MARK: - Helpers
 
     private func downloadStatus(_ progress: Double) -> String {
-        let pct = Int(progress * 100)
-        let mbDone = Int(640.0 * progress)
-        return "\(mbDone) / 640 MB · \(pct)%"
+        let pct = min(Int(progress * 100), 100)
+        return "\(pct)%"
     }
 
     private func barHeight(index: Int) -> CGFloat {
