@@ -72,19 +72,19 @@ impl PipelineState {
 /// The native layer (Swift/Kotlin/C++) implements this trait.
 pub trait PipelineListener: Send + Sync {
     /// Called on every state transition.
-    fn on_state_changed(&self, old: &PipelineState, new: &PipelineState);
+    fn on_state_changed(&self, old: PipelineState, new: PipelineState);
 
     /// Called when the final transcript is ready to be pasted.
-    fn on_paste_text(&self, text: &str);
+    fn on_paste_text(&self, text: String);
 
     /// Called to play a sound effect.
     fn on_play_sound(&self, sound: PipelineSound);
 
     /// Called when pipeline encounters an error.
-    fn on_error(&self, message: &str);
+    fn on_error(&self, message: String);
 
     /// Called when a pipeline run is recorded to history.
-    fn on_history_entry_added(&self, entry: &HistoryEntry);
+    fn on_history_entry_added(&self, entry: HistoryEntry);
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -148,8 +148,8 @@ impl PipelineEngine {
     pub fn transition(&mut self, new_state: PipelineState, listener: &dyn PipelineListener) {
         let old = self.state.clone();
         log::info!("pipeline: {} → {}", old.name(), new_state.name());
-        self.state = new_state;
-        listener.on_state_changed(&old, &self.state);
+        self.state = new_state.clone();
+        listener.on_state_changed(old, new_state);
     }
 
     /// Called when hotkey is pressed — start recording if possible.
@@ -263,7 +263,7 @@ impl PipelineEngine {
     /// Called when pipeline encounters an error at any stage.
     pub fn on_pipeline_error(&mut self, message: &str, listener: &dyn PipelineListener) {
         self.metrics.set_string("pipeline.outcome", "error".to_string());
-        listener.on_error(message);
+        listener.on_error(message.to_string());
         self.transition(PipelineState::Error { message: message.to_string() }, listener);
     }
 
@@ -294,7 +294,7 @@ impl PipelineEngine {
             self.transition(PipelineState::Idle, listener);
         } else {
             self.metrics.set_string("pipeline.outcome", "pasted".to_string());
-            listener.on_paste_text(&final_transcript);
+            listener.on_paste_text(final_transcript.clone());
             self.transition(PipelineState::Pasting, listener);
         }
 
@@ -316,7 +316,7 @@ impl PipelineEngine {
             audio_file_name: None,
             metrics_json: self.metrics.to_json(),
         };
-        listener.on_history_entry_added(&entry);
+        listener.on_history_entry_added(entry);
 
         self.pipeline_start = None;
     }
@@ -367,20 +367,20 @@ mod tests {
     }
 
     impl PipelineListener for MockListener {
-        fn on_state_changed(&self, old: &PipelineState, new: &PipelineState) {
+        fn on_state_changed(&self, old: PipelineState, new: PipelineState) {
             self.transitions.lock().unwrap().push((old.name().to_string(), new.name().to_string()));
         }
-        fn on_paste_text(&self, text: &str) {
-            self.pasted.lock().unwrap().push(text.to_string());
+        fn on_paste_text(&self, text: String) {
+            self.pasted.lock().unwrap().push(text);
         }
         fn on_play_sound(&self, sound: PipelineSound) {
             self.sounds.lock().unwrap().push(sound);
         }
-        fn on_error(&self, message: &str) {
-            self.errors.lock().unwrap().push(message.to_string());
+        fn on_error(&self, message: String) {
+            self.errors.lock().unwrap().push(message);
         }
-        fn on_history_entry_added(&self, entry: &HistoryEntry) {
-            self.history.lock().unwrap().push(entry.clone());
+        fn on_history_entry_added(&self, entry: HistoryEntry) {
+            self.history.lock().unwrap().push(entry);
         }
     }
 

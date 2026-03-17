@@ -395,7 +395,53 @@ fileprivate final class UniffiHandleMap<T>: @unchecked Sendable {
 
 
 // Public interface members begin here.
+// Magic number for the Rust proxy to call using the same mechanism as every other method,
+// to free the callback once it's dropped by Rust.
+private let IDX_CALLBACK_FREE: Int32 = 0
+// Callback return codes
+private let UNIFFI_CALLBACK_SUCCESS: Int32 = 0
+private let UNIFFI_CALLBACK_ERROR: Int32 = 1
+private let UNIFFI_CALLBACK_UNEXPECTED_ERROR: Int32 = 2
 
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterDouble: FfiConverterPrimitive {
+    typealias FfiType = Double
+    typealias SwiftType = Double
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Double {
+        return try lift(readDouble(&buf))
+    }
+
+    public static func write(_ value: Double, into buf: inout [UInt8]) {
+        writeDouble(&buf, lower(value))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterBool : FfiConverter {
+    typealias FfiType = Int8
+    typealias SwiftType = Bool
+
+    public static func lift(_ value: Int8) throws -> Bool {
+        return value != 0
+    }
+
+    public static func lower(_ value: Bool) -> Int8 {
+        return value ? 1 : 0
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Bool {
+        return try lift(readInt(&buf))
+    }
+
+    public static func write(_ value: Bool, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -437,34 +483,1141 @@ fileprivate struct FfiConverterString: FfiConverter {
         writeBytes(&buf, value.utf8)
     }
 }
-/**
- * Get the default app configuration as JSON
- */
-public func defaultConfig() -> String  {
-    return try!  FfiConverterString.lift(try! rustCall() {
-    uniffi_wrenflow_ffi_fn_func_default_config($0
+
+
+
+
+public protocol FfiPipelineEngineProtocol: AnyObject, Sendable {
+    
+    func handleHotkeyDown()  -> Bool
+    
+    func handleHotkeyUp(recordingDurationMs: Double)  -> Bool
+    
+    func onDismissTimeout() 
+    
+    func onFirstAudio() 
+    
+    func onIndicatorTimeout() 
+    
+    func onInitTimeout() 
+    
+    func onPipelineError(message: String) 
+    
+    func onPostProcessingComplete(rawTranscript: String, result: PostProcessingResult) 
+    
+    func onTranscriptionComplete(result: TranscriptionResult) 
+    
+    func state()  -> PipelineState
+    
+    func updateConfig(config: AppConfig) 
+    
+}
+open class FfiPipelineEngine: FfiPipelineEngineProtocol, @unchecked Sendable {
+    fileprivate let pointer: UnsafeMutableRawPointer!
+
+    /// Used to instantiate a [FFIObject] without an actual pointer, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoPointer {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
+        self.pointer = pointer
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noPointer: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing [Pointer] the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noPointer: NoPointer) {
+        self.pointer = nil
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiClonePointer() -> UnsafeMutableRawPointer {
+        return try! rustCall { uniffi_wrenflow_ffi_fn_clone_ffipipelineengine(self.pointer, $0) }
+    }
+public convenience init(config: AppConfig, listener: FfiPipelineListener) {
+    let pointer =
+        try! rustCall() {
+    uniffi_wrenflow_ffi_fn_constructor_ffipipelineengine_new(
+        FfiConverterTypeAppConfig_lower(config),
+        FfiConverterCallbackInterfaceFfiPipelineListener_lower(listener),$0
+    )
+}
+    self.init(unsafeFromRawPointer: pointer)
+}
+
+    deinit {
+        guard let pointer = pointer else {
+            return
+        }
+
+        try! rustCall { uniffi_wrenflow_ffi_fn_free_ffipipelineengine(pointer, $0) }
+    }
+
+    
+
+    
+open func handleHotkeyDown() -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_wrenflow_ffi_fn_method_ffipipelineengine_handle_hotkey_down(self.uniffiClonePointer(),$0
     )
 })
 }
-/**
- * Parse metrics JSON and return a display-formatted summary
- */
-public func formatMetrics(metricsJson: String) -> String  {
-    return try!  FfiConverterString.lift(try! rustCall() {
-    uniffi_wrenflow_ffi_fn_func_format_metrics(
-        FfiConverterString.lower(metricsJson),$0
+    
+open func handleHotkeyUp(recordingDurationMs: Double) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_wrenflow_ffi_fn_method_ffipipelineengine_handle_hotkey_up(self.uniffiClonePointer(),
+        FfiConverterDouble.lower(recordingDurationMs),$0
     )
 })
 }
-/**
- * Get pipeline state status text
- */
-public func pipelineStatusText(state: String) -> String  {
-    return try!  FfiConverterString.lift(try! rustCall() {
-    uniffi_wrenflow_ffi_fn_func_pipeline_status_text(
-        FfiConverterString.lower(state),$0
+    
+open func onDismissTimeout()  {try! rustCall() {
+    uniffi_wrenflow_ffi_fn_method_ffipipelineengine_on_dismiss_timeout(self.uniffiClonePointer(),$0
+    )
+}
+}
+    
+open func onFirstAudio()  {try! rustCall() {
+    uniffi_wrenflow_ffi_fn_method_ffipipelineengine_on_first_audio(self.uniffiClonePointer(),$0
+    )
+}
+}
+    
+open func onIndicatorTimeout()  {try! rustCall() {
+    uniffi_wrenflow_ffi_fn_method_ffipipelineengine_on_indicator_timeout(self.uniffiClonePointer(),$0
+    )
+}
+}
+    
+open func onInitTimeout()  {try! rustCall() {
+    uniffi_wrenflow_ffi_fn_method_ffipipelineengine_on_init_timeout(self.uniffiClonePointer(),$0
+    )
+}
+}
+    
+open func onPipelineError(message: String)  {try! rustCall() {
+    uniffi_wrenflow_ffi_fn_method_ffipipelineengine_on_pipeline_error(self.uniffiClonePointer(),
+        FfiConverterString.lower(message),$0
+    )
+}
+}
+    
+open func onPostProcessingComplete(rawTranscript: String, result: PostProcessingResult)  {try! rustCall() {
+    uniffi_wrenflow_ffi_fn_method_ffipipelineengine_on_post_processing_complete(self.uniffiClonePointer(),
+        FfiConverterString.lower(rawTranscript),
+        FfiConverterTypePostProcessingResult_lower(result),$0
+    )
+}
+}
+    
+open func onTranscriptionComplete(result: TranscriptionResult)  {try! rustCall() {
+    uniffi_wrenflow_ffi_fn_method_ffipipelineengine_on_transcription_complete(self.uniffiClonePointer(),
+        FfiConverterTypeTranscriptionResult_lower(result),$0
+    )
+}
+}
+    
+open func state() -> PipelineState  {
+    return try!  FfiConverterTypePipelineState_lift(try! rustCall() {
+    uniffi_wrenflow_ffi_fn_method_ffipipelineengine_state(self.uniffiClonePointer(),$0
     )
 })
+}
+    
+open func updateConfig(config: AppConfig)  {try! rustCall() {
+    uniffi_wrenflow_ffi_fn_method_ffipipelineengine_update_config(self.uniffiClonePointer(),
+        FfiConverterTypeAppConfig_lower(config),$0
+    )
+}
+}
+    
+
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiPipelineEngine: FfiConverter {
+
+    typealias FfiType = UnsafeMutableRawPointer
+    typealias SwiftType = FfiPipelineEngine
+
+    public static func lift(_ pointer: UnsafeMutableRawPointer) throws -> FfiPipelineEngine {
+        return FfiPipelineEngine(unsafeFromRawPointer: pointer)
+    }
+
+    public static func lower(_ value: FfiPipelineEngine) -> UnsafeMutableRawPointer {
+        return value.uniffiClonePointer()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiPipelineEngine {
+        let v: UInt64 = try readInt(&buf)
+        // The Rust code won't compile if a pointer won't fit in a UInt64.
+        // We have to go via `UInt` because that's the thing that's the size of a pointer.
+        let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: v))
+        if (ptr == nil) {
+            throw UniffiInternalError.unexpectedNullPointer
+        }
+        return try lift(ptr!)
+    }
+
+    public static func write(_ value: FfiPipelineEngine, into buf: inout [UInt8]) {
+        // This fiddling is because `Int` is the thing that's the same size as a pointer.
+        // The Rust code won't compile if a pointer won't fit in a `UInt64`.
+        writeInt(&buf, UInt64(bitPattern: Int64(Int(bitPattern: lower(value)))))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiPipelineEngine_lift(_ pointer: UnsafeMutableRawPointer) throws -> FfiPipelineEngine {
+    return try FfiConverterTypeFfiPipelineEngine.lift(pointer)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiPipelineEngine_lower(_ value: FfiPipelineEngine) -> UnsafeMutableRawPointer {
+    return FfiConverterTypeFfiPipelineEngine.lower(value)
+}
+
+
+
+
+public struct AppConfig {
+    public var transcriptionProvider: String
+    public var postProcessingEnabled: Bool
+    public var postProcessingModel: String
+    public var apiBaseUrl: String
+    public var minimumRecordingDurationMs: Double
+    public var customVocabulary: String
+    public var customSystemPrompt: String
+    public var customContextPrompt: String
+    public var selectedHotkey: String
+    public var selectedMicrophoneId: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(transcriptionProvider: String, postProcessingEnabled: Bool, postProcessingModel: String, apiBaseUrl: String, minimumRecordingDurationMs: Double, customVocabulary: String, customSystemPrompt: String, customContextPrompt: String, selectedHotkey: String, selectedMicrophoneId: String) {
+        self.transcriptionProvider = transcriptionProvider
+        self.postProcessingEnabled = postProcessingEnabled
+        self.postProcessingModel = postProcessingModel
+        self.apiBaseUrl = apiBaseUrl
+        self.minimumRecordingDurationMs = minimumRecordingDurationMs
+        self.customVocabulary = customVocabulary
+        self.customSystemPrompt = customSystemPrompt
+        self.customContextPrompt = customContextPrompt
+        self.selectedHotkey = selectedHotkey
+        self.selectedMicrophoneId = selectedMicrophoneId
+    }
+}
+
+#if compiler(>=6)
+extension AppConfig: Sendable {}
+#endif
+
+
+extension AppConfig: Equatable, Hashable {
+    public static func ==(lhs: AppConfig, rhs: AppConfig) -> Bool {
+        if lhs.transcriptionProvider != rhs.transcriptionProvider {
+            return false
+        }
+        if lhs.postProcessingEnabled != rhs.postProcessingEnabled {
+            return false
+        }
+        if lhs.postProcessingModel != rhs.postProcessingModel {
+            return false
+        }
+        if lhs.apiBaseUrl != rhs.apiBaseUrl {
+            return false
+        }
+        if lhs.minimumRecordingDurationMs != rhs.minimumRecordingDurationMs {
+            return false
+        }
+        if lhs.customVocabulary != rhs.customVocabulary {
+            return false
+        }
+        if lhs.customSystemPrompt != rhs.customSystemPrompt {
+            return false
+        }
+        if lhs.customContextPrompt != rhs.customContextPrompt {
+            return false
+        }
+        if lhs.selectedHotkey != rhs.selectedHotkey {
+            return false
+        }
+        if lhs.selectedMicrophoneId != rhs.selectedMicrophoneId {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(transcriptionProvider)
+        hasher.combine(postProcessingEnabled)
+        hasher.combine(postProcessingModel)
+        hasher.combine(apiBaseUrl)
+        hasher.combine(minimumRecordingDurationMs)
+        hasher.combine(customVocabulary)
+        hasher.combine(customSystemPrompt)
+        hasher.combine(customContextPrompt)
+        hasher.combine(selectedHotkey)
+        hasher.combine(selectedMicrophoneId)
+    }
+}
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAppConfig: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AppConfig {
+        return
+            try AppConfig(
+                transcriptionProvider: FfiConverterString.read(from: &buf), 
+                postProcessingEnabled: FfiConverterBool.read(from: &buf), 
+                postProcessingModel: FfiConverterString.read(from: &buf), 
+                apiBaseUrl: FfiConverterString.read(from: &buf), 
+                minimumRecordingDurationMs: FfiConverterDouble.read(from: &buf), 
+                customVocabulary: FfiConverterString.read(from: &buf), 
+                customSystemPrompt: FfiConverterString.read(from: &buf), 
+                customContextPrompt: FfiConverterString.read(from: &buf), 
+                selectedHotkey: FfiConverterString.read(from: &buf), 
+                selectedMicrophoneId: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: AppConfig, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.transcriptionProvider, into: &buf)
+        FfiConverterBool.write(value.postProcessingEnabled, into: &buf)
+        FfiConverterString.write(value.postProcessingModel, into: &buf)
+        FfiConverterString.write(value.apiBaseUrl, into: &buf)
+        FfiConverterDouble.write(value.minimumRecordingDurationMs, into: &buf)
+        FfiConverterString.write(value.customVocabulary, into: &buf)
+        FfiConverterString.write(value.customSystemPrompt, into: &buf)
+        FfiConverterString.write(value.customContextPrompt, into: &buf)
+        FfiConverterString.write(value.selectedHotkey, into: &buf)
+        FfiConverterString.write(value.selectedMicrophoneId, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAppConfig_lift(_ buf: RustBuffer) throws -> AppConfig {
+    return try FfiConverterTypeAppConfig.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAppConfig_lower(_ value: AppConfig) -> RustBuffer {
+    return FfiConverterTypeAppConfig.lower(value)
+}
+
+
+public struct HistoryEntry {
+    public var id: String
+    public var timestamp: Double
+    public var rawTranscript: String
+    public var postProcessedTranscript: String
+    public var postProcessingPrompt: String?
+    public var postProcessingReasoning: String?
+    public var contextSummary: String
+    public var contextPrompt: String?
+    public var contextScreenshotDataUrl: String?
+    public var contextScreenshotStatus: String
+    public var postProcessingStatus: String
+    public var debugStatus: String
+    public var customVocabulary: String
+    public var audioFileName: String?
+    public var metricsJson: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, timestamp: Double, rawTranscript: String, postProcessedTranscript: String, postProcessingPrompt: String?, postProcessingReasoning: String?, contextSummary: String, contextPrompt: String?, contextScreenshotDataUrl: String?, contextScreenshotStatus: String, postProcessingStatus: String, debugStatus: String, customVocabulary: String, audioFileName: String?, metricsJson: String) {
+        self.id = id
+        self.timestamp = timestamp
+        self.rawTranscript = rawTranscript
+        self.postProcessedTranscript = postProcessedTranscript
+        self.postProcessingPrompt = postProcessingPrompt
+        self.postProcessingReasoning = postProcessingReasoning
+        self.contextSummary = contextSummary
+        self.contextPrompt = contextPrompt
+        self.contextScreenshotDataUrl = contextScreenshotDataUrl
+        self.contextScreenshotStatus = contextScreenshotStatus
+        self.postProcessingStatus = postProcessingStatus
+        self.debugStatus = debugStatus
+        self.customVocabulary = customVocabulary
+        self.audioFileName = audioFileName
+        self.metricsJson = metricsJson
+    }
+}
+
+#if compiler(>=6)
+extension HistoryEntry: Sendable {}
+#endif
+
+
+extension HistoryEntry: Equatable, Hashable {
+    public static func ==(lhs: HistoryEntry, rhs: HistoryEntry) -> Bool {
+        if lhs.id != rhs.id {
+            return false
+        }
+        if lhs.timestamp != rhs.timestamp {
+            return false
+        }
+        if lhs.rawTranscript != rhs.rawTranscript {
+            return false
+        }
+        if lhs.postProcessedTranscript != rhs.postProcessedTranscript {
+            return false
+        }
+        if lhs.postProcessingPrompt != rhs.postProcessingPrompt {
+            return false
+        }
+        if lhs.postProcessingReasoning != rhs.postProcessingReasoning {
+            return false
+        }
+        if lhs.contextSummary != rhs.contextSummary {
+            return false
+        }
+        if lhs.contextPrompt != rhs.contextPrompt {
+            return false
+        }
+        if lhs.contextScreenshotDataUrl != rhs.contextScreenshotDataUrl {
+            return false
+        }
+        if lhs.contextScreenshotStatus != rhs.contextScreenshotStatus {
+            return false
+        }
+        if lhs.postProcessingStatus != rhs.postProcessingStatus {
+            return false
+        }
+        if lhs.debugStatus != rhs.debugStatus {
+            return false
+        }
+        if lhs.customVocabulary != rhs.customVocabulary {
+            return false
+        }
+        if lhs.audioFileName != rhs.audioFileName {
+            return false
+        }
+        if lhs.metricsJson != rhs.metricsJson {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(timestamp)
+        hasher.combine(rawTranscript)
+        hasher.combine(postProcessedTranscript)
+        hasher.combine(postProcessingPrompt)
+        hasher.combine(postProcessingReasoning)
+        hasher.combine(contextSummary)
+        hasher.combine(contextPrompt)
+        hasher.combine(contextScreenshotDataUrl)
+        hasher.combine(contextScreenshotStatus)
+        hasher.combine(postProcessingStatus)
+        hasher.combine(debugStatus)
+        hasher.combine(customVocabulary)
+        hasher.combine(audioFileName)
+        hasher.combine(metricsJson)
+    }
+}
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeHistoryEntry: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> HistoryEntry {
+        return
+            try HistoryEntry(
+                id: FfiConverterString.read(from: &buf), 
+                timestamp: FfiConverterDouble.read(from: &buf), 
+                rawTranscript: FfiConverterString.read(from: &buf), 
+                postProcessedTranscript: FfiConverterString.read(from: &buf), 
+                postProcessingPrompt: FfiConverterOptionString.read(from: &buf), 
+                postProcessingReasoning: FfiConverterOptionString.read(from: &buf), 
+                contextSummary: FfiConverterString.read(from: &buf), 
+                contextPrompt: FfiConverterOptionString.read(from: &buf), 
+                contextScreenshotDataUrl: FfiConverterOptionString.read(from: &buf), 
+                contextScreenshotStatus: FfiConverterString.read(from: &buf), 
+                postProcessingStatus: FfiConverterString.read(from: &buf), 
+                debugStatus: FfiConverterString.read(from: &buf), 
+                customVocabulary: FfiConverterString.read(from: &buf), 
+                audioFileName: FfiConverterOptionString.read(from: &buf), 
+                metricsJson: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: HistoryEntry, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterDouble.write(value.timestamp, into: &buf)
+        FfiConverterString.write(value.rawTranscript, into: &buf)
+        FfiConverterString.write(value.postProcessedTranscript, into: &buf)
+        FfiConverterOptionString.write(value.postProcessingPrompt, into: &buf)
+        FfiConverterOptionString.write(value.postProcessingReasoning, into: &buf)
+        FfiConverterString.write(value.contextSummary, into: &buf)
+        FfiConverterOptionString.write(value.contextPrompt, into: &buf)
+        FfiConverterOptionString.write(value.contextScreenshotDataUrl, into: &buf)
+        FfiConverterString.write(value.contextScreenshotStatus, into: &buf)
+        FfiConverterString.write(value.postProcessingStatus, into: &buf)
+        FfiConverterString.write(value.debugStatus, into: &buf)
+        FfiConverterString.write(value.customVocabulary, into: &buf)
+        FfiConverterOptionString.write(value.audioFileName, into: &buf)
+        FfiConverterString.write(value.metricsJson, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHistoryEntry_lift(_ buf: RustBuffer) throws -> HistoryEntry {
+    return try FfiConverterTypeHistoryEntry.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHistoryEntry_lower(_ value: HistoryEntry) -> RustBuffer {
+    return FfiConverterTypeHistoryEntry.lower(value)
+}
+
+
+public struct PostProcessingResult {
+    public var transcript: String
+    public var prompt: String
+    public var reasoning: String
+    public var durationMs: Double
+    public var status: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(transcript: String, prompt: String, reasoning: String, durationMs: Double, status: String) {
+        self.transcript = transcript
+        self.prompt = prompt
+        self.reasoning = reasoning
+        self.durationMs = durationMs
+        self.status = status
+    }
+}
+
+#if compiler(>=6)
+extension PostProcessingResult: Sendable {}
+#endif
+
+
+extension PostProcessingResult: Equatable, Hashable {
+    public static func ==(lhs: PostProcessingResult, rhs: PostProcessingResult) -> Bool {
+        if lhs.transcript != rhs.transcript {
+            return false
+        }
+        if lhs.prompt != rhs.prompt {
+            return false
+        }
+        if lhs.reasoning != rhs.reasoning {
+            return false
+        }
+        if lhs.durationMs != rhs.durationMs {
+            return false
+        }
+        if lhs.status != rhs.status {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(transcript)
+        hasher.combine(prompt)
+        hasher.combine(reasoning)
+        hasher.combine(durationMs)
+        hasher.combine(status)
+    }
+}
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePostProcessingResult: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PostProcessingResult {
+        return
+            try PostProcessingResult(
+                transcript: FfiConverterString.read(from: &buf), 
+                prompt: FfiConverterString.read(from: &buf), 
+                reasoning: FfiConverterString.read(from: &buf), 
+                durationMs: FfiConverterDouble.read(from: &buf), 
+                status: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: PostProcessingResult, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.transcript, into: &buf)
+        FfiConverterString.write(value.prompt, into: &buf)
+        FfiConverterString.write(value.reasoning, into: &buf)
+        FfiConverterDouble.write(value.durationMs, into: &buf)
+        FfiConverterString.write(value.status, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePostProcessingResult_lift(_ buf: RustBuffer) throws -> PostProcessingResult {
+    return try FfiConverterTypePostProcessingResult.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePostProcessingResult_lower(_ value: PostProcessingResult) -> RustBuffer {
+    return FfiConverterTypePostProcessingResult.lower(value)
+}
+
+
+public struct TranscriptionResult {
+    public var rawTranscript: String
+    public var durationMs: Double
+    public var provider: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(rawTranscript: String, durationMs: Double, provider: String) {
+        self.rawTranscript = rawTranscript
+        self.durationMs = durationMs
+        self.provider = provider
+    }
+}
+
+#if compiler(>=6)
+extension TranscriptionResult: Sendable {}
+#endif
+
+
+extension TranscriptionResult: Equatable, Hashable {
+    public static func ==(lhs: TranscriptionResult, rhs: TranscriptionResult) -> Bool {
+        if lhs.rawTranscript != rhs.rawTranscript {
+            return false
+        }
+        if lhs.durationMs != rhs.durationMs {
+            return false
+        }
+        if lhs.provider != rhs.provider {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(rawTranscript)
+        hasher.combine(durationMs)
+        hasher.combine(provider)
+    }
+}
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTranscriptionResult: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TranscriptionResult {
+        return
+            try TranscriptionResult(
+                rawTranscript: FfiConverterString.read(from: &buf), 
+                durationMs: FfiConverterDouble.read(from: &buf), 
+                provider: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: TranscriptionResult, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.rawTranscript, into: &buf)
+        FfiConverterDouble.write(value.durationMs, into: &buf)
+        FfiConverterString.write(value.provider, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTranscriptionResult_lift(_ buf: RustBuffer) throws -> TranscriptionResult {
+    return try FfiConverterTypeTranscriptionResult.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTranscriptionResult_lower(_ value: TranscriptionResult) -> RustBuffer {
+    return FfiConverterTypeTranscriptionResult.lower(value)
+}
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+
+public enum PipelineSound {
+    
+    case recordingStarted
+    case recordingStopped
+}
+
+
+#if compiler(>=6)
+extension PipelineSound: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePipelineSound: FfiConverterRustBuffer {
+    typealias SwiftType = PipelineSound
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PipelineSound {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .recordingStarted
+        
+        case 2: return .recordingStopped
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: PipelineSound, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .recordingStarted:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .recordingStopped:
+            writeInt(&buf, Int32(2))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePipelineSound_lift(_ buf: RustBuffer) throws -> PipelineSound {
+    return try FfiConverterTypePipelineSound.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePipelineSound_lower(_ value: PipelineSound) -> RustBuffer {
+    return FfiConverterTypePipelineSound.lower(value)
+}
+
+
+extension PipelineSound: Equatable, Hashable {}
+
+
+
+
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+
+public enum PipelineState {
+    
+    case idle
+    case starting
+    case initializing
+    case recording
+    case transcribing(showingIndicator: Bool
+    )
+    case postProcessing(showingIndicator: Bool
+    )
+    case pasting
+    case error(message: String
+    )
+}
+
+
+#if compiler(>=6)
+extension PipelineState: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePipelineState: FfiConverterRustBuffer {
+    typealias SwiftType = PipelineState
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PipelineState {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .idle
+        
+        case 2: return .starting
+        
+        case 3: return .initializing
+        
+        case 4: return .recording
+        
+        case 5: return .transcribing(showingIndicator: try FfiConverterBool.read(from: &buf)
+        )
+        
+        case 6: return .postProcessing(showingIndicator: try FfiConverterBool.read(from: &buf)
+        )
+        
+        case 7: return .pasting
+        
+        case 8: return .error(message: try FfiConverterString.read(from: &buf)
+        )
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: PipelineState, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .idle:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .starting:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .initializing:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .recording:
+            writeInt(&buf, Int32(4))
+        
+        
+        case let .transcribing(showingIndicator):
+            writeInt(&buf, Int32(5))
+            FfiConverterBool.write(showingIndicator, into: &buf)
+            
+        
+        case let .postProcessing(showingIndicator):
+            writeInt(&buf, Int32(6))
+            FfiConverterBool.write(showingIndicator, into: &buf)
+            
+        
+        case .pasting:
+            writeInt(&buf, Int32(7))
+        
+        
+        case let .error(message):
+            writeInt(&buf, Int32(8))
+            FfiConverterString.write(message, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePipelineState_lift(_ buf: RustBuffer) throws -> PipelineState {
+    return try FfiConverterTypePipelineState.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePipelineState_lower(_ value: PipelineState) -> RustBuffer {
+    return FfiConverterTypePipelineState.lower(value)
+}
+
+
+extension PipelineState: Equatable, Hashable {}
+
+
+
+
+
+
+
+
+
+public protocol FfiPipelineListener: AnyObject, Sendable {
+    
+    func onStateChanged(old: PipelineState, new: PipelineState) 
+    
+    func onPasteText(text: String) 
+    
+    func onPlaySound(sound: PipelineSound) 
+    
+    func onError(message: String) 
+    
+    func onHistoryEntryAdded(entry: HistoryEntry) 
+    
+}
+
+
+// Put the implementation in a struct so we don't pollute the top-level namespace
+fileprivate struct UniffiCallbackInterfaceFfiPipelineListener {
+
+    // Create the VTable using a series of closures.
+    // Swift automatically converts these into C callback functions.
+    //
+    // This creates 1-element array, since this seems to be the only way to construct a const
+    // pointer that we can pass to the Rust code.
+    static let vtable: [UniffiVTableCallbackInterfaceFfiPipelineListener] = [UniffiVTableCallbackInterfaceFfiPipelineListener(
+        onStateChanged: { (
+            uniffiHandle: UInt64,
+            old: RustBuffer,
+            new: RustBuffer,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceFfiPipelineListener.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.onStateChanged(
+                     old: try FfiConverterTypePipelineState_lift(old),
+                     new: try FfiConverterTypePipelineState_lift(new)
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        onPasteText: { (
+            uniffiHandle: UInt64,
+            text: RustBuffer,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceFfiPipelineListener.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.onPasteText(
+                     text: try FfiConverterString.lift(text)
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        onPlaySound: { (
+            uniffiHandle: UInt64,
+            sound: RustBuffer,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceFfiPipelineListener.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.onPlaySound(
+                     sound: try FfiConverterTypePipelineSound_lift(sound)
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        onError: { (
+            uniffiHandle: UInt64,
+            message: RustBuffer,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceFfiPipelineListener.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.onError(
+                     message: try FfiConverterString.lift(message)
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        onHistoryEntryAdded: { (
+            uniffiHandle: UInt64,
+            entry: RustBuffer,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceFfiPipelineListener.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.onHistoryEntryAdded(
+                     entry: try FfiConverterTypeHistoryEntry_lift(entry)
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        uniffiFree: { (uniffiHandle: UInt64) -> () in
+            let result = try? FfiConverterCallbackInterfaceFfiPipelineListener.handleMap.remove(handle: uniffiHandle)
+            if result == nil {
+                print("Uniffi callback interface FfiPipelineListener: handle missing in uniffiFree")
+            }
+        }
+    )]
+}
+
+private func uniffiCallbackInitFfiPipelineListener() {
+    uniffi_wrenflow_ffi_fn_init_callback_vtable_ffipipelinelistener(UniffiCallbackInterfaceFfiPipelineListener.vtable)
+}
+
+// FfiConverter protocol for callback interfaces
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterCallbackInterfaceFfiPipelineListener {
+    fileprivate static let handleMap = UniffiHandleMap<FfiPipelineListener>()
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+extension FfiConverterCallbackInterfaceFfiPipelineListener : FfiConverter {
+    typealias SwiftType = FfiPipelineListener
+    typealias FfiType = UInt64
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func lift(_ handle: UInt64) throws -> SwiftType {
+        try handleMap.get(handle: handle)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func lower(_ v: SwiftType) -> UInt64 {
+        return handleMap.insert(obj: v)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func write(_ v: SwiftType, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(v))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterCallbackInterfaceFfiPipelineListener_lift(_ handle: UInt64) throws -> FfiPipelineListener {
+    return try FfiConverterCallbackInterfaceFfiPipelineListener.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterCallbackInterfaceFfiPipelineListener_lower(_ v: FfiPipelineListener) -> UInt64 {
+    return FfiConverterCallbackInterfaceFfiPipelineListener.lower(v)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionString: FfiConverterRustBuffer {
+    typealias SwiftType = String?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterString.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterString.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
 }
 
 private enum InitializationResult {
@@ -482,16 +1635,59 @@ private let initializationResult: InitializationResult = {
     if bindings_contract_version != scaffolding_contract_version {
         return InitializationResult.contractVersionMismatch
     }
-    if (uniffi_wrenflow_ffi_checksum_func_default_config() != 51581) {
+    if (uniffi_wrenflow_ffi_checksum_method_ffipipelineengine_handle_hotkey_down() != 58275) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_wrenflow_ffi_checksum_func_format_metrics() != 30427) {
+    if (uniffi_wrenflow_ffi_checksum_method_ffipipelineengine_handle_hotkey_up() != 13834) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_wrenflow_ffi_checksum_func_pipeline_status_text() != 15111) {
+    if (uniffi_wrenflow_ffi_checksum_method_ffipipelineengine_on_dismiss_timeout() != 25106) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_wrenflow_ffi_checksum_method_ffipipelineengine_on_first_audio() != 62574) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_wrenflow_ffi_checksum_method_ffipipelineengine_on_indicator_timeout() != 27555) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_wrenflow_ffi_checksum_method_ffipipelineengine_on_init_timeout() != 24908) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_wrenflow_ffi_checksum_method_ffipipelineengine_on_pipeline_error() != 7460) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_wrenflow_ffi_checksum_method_ffipipelineengine_on_post_processing_complete() != 15831) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_wrenflow_ffi_checksum_method_ffipipelineengine_on_transcription_complete() != 49963) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_wrenflow_ffi_checksum_method_ffipipelineengine_state() != 64628) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_wrenflow_ffi_checksum_method_ffipipelineengine_update_config() != 37693) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_wrenflow_ffi_checksum_constructor_ffipipelineengine_new() != 3148) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_wrenflow_ffi_checksum_method_ffipipelinelistener_on_state_changed() != 48524) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_wrenflow_ffi_checksum_method_ffipipelinelistener_on_paste_text() != 49694) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_wrenflow_ffi_checksum_method_ffipipelinelistener_on_play_sound() != 14721) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_wrenflow_ffi_checksum_method_ffipipelinelistener_on_error() != 53829) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_wrenflow_ffi_checksum_method_ffipipelinelistener_on_history_entry_added() != 12008) {
         return InitializationResult.apiChecksumMismatch
     }
 
+    uniffiCallbackInitFfiPipelineListener()
     return InitializationResult.ok
 }()
 
