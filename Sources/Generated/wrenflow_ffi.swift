@@ -490,14 +490,33 @@ fileprivate struct FfiConverterString: FfiConverter {
 public protocol FfiLocalTranscriptionEngineProtocol: AnyObject, Sendable {
     
     /**
-     * Initialize the model from a directory path. Returns error message or nil.
+     * Download model files (blocking — call from background thread).
+     * Reports progress via listener.
      */
-    func initialize(modelDir: String)  -> String?
+    func downloadModel(modelDir: String, listener: FfiModelProgressListener)  -> String?
     
+    /**
+     * Download (if needed) + load model. Full initialization flow.
+     */
+    func initializeWithDownload(modelDir: String, listener: FfiModelProgressListener)  -> String?
+    
+    /**
+     * Check if model files exist at the given path.
+     */
+    func isModelDownloaded(modelDir: String)  -> Bool
+    
+    /**
+     * Load the model into memory for inference (blocking).
+     */
+    func loadModel(modelDir: String)  -> String?
+    
+    /**
+     * Current model state.
+     */
     func state()  -> ModelState
     
     /**
-     * Transcribe a WAV file. Returns text, or error message if failed.
+     * Transcribe a WAV file.
      */
     func transcribeFile(filePath: String)  -> TranscribeResult
     
@@ -562,16 +581,55 @@ public convenience init() {
 
     
     /**
-     * Initialize the model from a directory path. Returns error message or nil.
+     * Download model files (blocking — call from background thread).
+     * Reports progress via listener.
      */
-open func initialize(modelDir: String) -> String?  {
+open func downloadModel(modelDir: String, listener: FfiModelProgressListener) -> String?  {
     return try!  FfiConverterOptionString.lift(try! rustCall() {
-    uniffi_wrenflow_ffi_fn_method_ffilocaltranscriptionengine_initialize(self.uniffiClonePointer(),
+    uniffi_wrenflow_ffi_fn_method_ffilocaltranscriptionengine_download_model(self.uniffiClonePointer(),
+        FfiConverterString.lower(modelDir),
+        FfiConverterCallbackInterfaceFfiModelProgressListener_lower(listener),$0
+    )
+})
+}
+    
+    /**
+     * Download (if needed) + load model. Full initialization flow.
+     */
+open func initializeWithDownload(modelDir: String, listener: FfiModelProgressListener) -> String?  {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+    uniffi_wrenflow_ffi_fn_method_ffilocaltranscriptionengine_initialize_with_download(self.uniffiClonePointer(),
+        FfiConverterString.lower(modelDir),
+        FfiConverterCallbackInterfaceFfiModelProgressListener_lower(listener),$0
+    )
+})
+}
+    
+    /**
+     * Check if model files exist at the given path.
+     */
+open func isModelDownloaded(modelDir: String) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_wrenflow_ffi_fn_method_ffilocaltranscriptionengine_is_model_downloaded(self.uniffiClonePointer(),
         FfiConverterString.lower(modelDir),$0
     )
 })
 }
     
+    /**
+     * Load the model into memory for inference (blocking).
+     */
+open func loadModel(modelDir: String) -> String?  {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+    uniffi_wrenflow_ffi_fn_method_ffilocaltranscriptionengine_load_model(self.uniffiClonePointer(),
+        FfiConverterString.lower(modelDir),$0
+    )
+})
+}
+    
+    /**
+     * Current model state.
+     */
 open func state() -> ModelState  {
     return try!  FfiConverterTypeModelState_lift(try! rustCall() {
     uniffi_wrenflow_ffi_fn_method_ffilocaltranscriptionengine_state(self.uniffiClonePointer(),$0
@@ -580,7 +638,7 @@ open func state() -> ModelState  {
 }
     
     /**
-     * Transcribe a WAV file. Returns text, or error message if failed.
+     * Transcribe a WAV file.
      */
 open func transcribeFile(filePath: String) -> TranscribeResult  {
     return try!  FfiConverterTypeTranscribeResult_lift(try! rustCall() {
@@ -1427,9 +1485,10 @@ public func FfiConverterTypeTranscriptionResult_lower(_ value: TranscriptionResu
 
 public enum ModelState {
     
-    case notLoaded
-    case downloading
-    case compiling
+    case notDownloaded
+    case downloading(progressFraction: Double, currentFile: String
+    )
+    case loading
     case ready
     case error(message: String
     )
@@ -1450,11 +1509,12 @@ public struct FfiConverterTypeModelState: FfiConverterRustBuffer {
         let variant: Int32 = try readInt(&buf)
         switch variant {
         
-        case 1: return .notLoaded
+        case 1: return .notDownloaded
         
-        case 2: return .downloading
+        case 2: return .downloading(progressFraction: try FfiConverterDouble.read(from: &buf), currentFile: try FfiConverterString.read(from: &buf)
+        )
         
-        case 3: return .compiling
+        case 3: return .loading
         
         case 4: return .ready
         
@@ -1469,15 +1529,17 @@ public struct FfiConverterTypeModelState: FfiConverterRustBuffer {
         switch value {
         
         
-        case .notLoaded:
+        case .notDownloaded:
             writeInt(&buf, Int32(1))
         
         
-        case .downloading:
+        case let .downloading(progressFraction,currentFile):
             writeInt(&buf, Int32(2))
+            FfiConverterDouble.write(progressFraction, into: &buf)
+            FfiConverterString.write(currentFile, into: &buf)
+            
         
-        
-        case .compiling:
+        case .loading:
             writeInt(&buf, Int32(3))
         
         
@@ -1706,6 +1768,125 @@ extension PipelineState: Equatable, Hashable {}
 
 
 
+
+
+
+
+/**
+ * Callback for model download/load progress.
+ */
+public protocol FfiModelProgressListener: AnyObject, Sendable {
+    
+    func onStateChanged(state: ModelState) 
+    
+}
+
+
+// Put the implementation in a struct so we don't pollute the top-level namespace
+fileprivate struct UniffiCallbackInterfaceFfiModelProgressListener {
+
+    // Create the VTable using a series of closures.
+    // Swift automatically converts these into C callback functions.
+    //
+    // This creates 1-element array, since this seems to be the only way to construct a const
+    // pointer that we can pass to the Rust code.
+    static let vtable: [UniffiVTableCallbackInterfaceFfiModelProgressListener] = [UniffiVTableCallbackInterfaceFfiModelProgressListener(
+        onStateChanged: { (
+            uniffiHandle: UInt64,
+            state: RustBuffer,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceFfiModelProgressListener.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.onStateChanged(
+                     state: try FfiConverterTypeModelState_lift(state)
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        uniffiFree: { (uniffiHandle: UInt64) -> () in
+            let result = try? FfiConverterCallbackInterfaceFfiModelProgressListener.handleMap.remove(handle: uniffiHandle)
+            if result == nil {
+                print("Uniffi callback interface FfiModelProgressListener: handle missing in uniffiFree")
+            }
+        }
+    )]
+}
+
+private func uniffiCallbackInitFfiModelProgressListener() {
+    uniffi_wrenflow_ffi_fn_init_callback_vtable_ffimodelprogresslistener(UniffiCallbackInterfaceFfiModelProgressListener.vtable)
+}
+
+// FfiConverter protocol for callback interfaces
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterCallbackInterfaceFfiModelProgressListener {
+    fileprivate static let handleMap = UniffiHandleMap<FfiModelProgressListener>()
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+extension FfiConverterCallbackInterfaceFfiModelProgressListener : FfiConverter {
+    typealias SwiftType = FfiModelProgressListener
+    typealias FfiType = UInt64
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func lift(_ handle: UInt64) throws -> SwiftType {
+        try handleMap.get(handle: handle)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func lower(_ v: SwiftType) -> UInt64 {
+        return handleMap.insert(obj: v)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func write(_ v: SwiftType, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(v))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterCallbackInterfaceFfiModelProgressListener_lift(_ handle: UInt64) throws -> FfiModelProgressListener {
+    return try FfiConverterCallbackInterfaceFfiModelProgressListener.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterCallbackInterfaceFfiModelProgressListener_lower(_ v: FfiModelProgressListener) -> UInt64 {
+    return FfiConverterCallbackInterfaceFfiModelProgressListener.lower(v)
+}
 
 
 
@@ -1968,13 +2149,22 @@ private let initializationResult: InitializationResult = {
     if bindings_contract_version != scaffolding_contract_version {
         return InitializationResult.contractVersionMismatch
     }
-    if (uniffi_wrenflow_ffi_checksum_method_ffilocaltranscriptionengine_initialize() != 8716) {
+    if (uniffi_wrenflow_ffi_checksum_method_ffilocaltranscriptionengine_download_model() != 18877) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_wrenflow_ffi_checksum_method_ffilocaltranscriptionengine_state() != 32214) {
+    if (uniffi_wrenflow_ffi_checksum_method_ffilocaltranscriptionengine_initialize_with_download() != 2718) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_wrenflow_ffi_checksum_method_ffilocaltranscriptionengine_transcribe_file() != 41800) {
+    if (uniffi_wrenflow_ffi_checksum_method_ffilocaltranscriptionengine_is_model_downloaded() != 27540) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_wrenflow_ffi_checksum_method_ffilocaltranscriptionengine_load_model() != 22584) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_wrenflow_ffi_checksum_method_ffilocaltranscriptionengine_state() != 9127) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_wrenflow_ffi_checksum_method_ffilocaltranscriptionengine_transcribe_file() != 48553) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_wrenflow_ffi_checksum_method_ffipipelineengine_handle_hotkey_down() != 58275) {
@@ -2016,6 +2206,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_wrenflow_ffi_checksum_constructor_ffipipelineengine_new() != 3148) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_wrenflow_ffi_checksum_method_ffimodelprogresslistener_on_state_changed() != 101) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_wrenflow_ffi_checksum_method_ffipipelinelistener_on_state_changed() != 48524) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -2032,6 +2225,7 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
 
+    uniffiCallbackInitFfiModelProgressListener()
     uniffiCallbackInitFfiPipelineListener()
     return InitializationResult.ok
 }()

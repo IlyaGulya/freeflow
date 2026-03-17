@@ -193,30 +193,61 @@ impl FfiPipelineEngine {
 // Local Transcription Engine (wraps parakeet-rs)
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Local Transcription Engine with model download
+// ---------------------------------------------------------------------------
+
 #[derive(Debug, Clone, PartialEq, uniffi::Enum)]
 pub enum ModelState {
-    NotLoaded,
-    Downloading,
-    Compiling,
+    NotDownloaded,
+    Downloading { progress_fraction: f64, current_file: String },
+    Loading,
     Ready,
     Error { message: String },
 }
 
-impl From<wrenflow_core::transcription::local::ModelState> for ModelState {
-    fn from(s: wrenflow_core::transcription::local::ModelState) -> Self {
-        match s {
-            wrenflow_core::transcription::local::ModelState::NotLoaded => Self::NotLoaded,
-            wrenflow_core::transcription::local::ModelState::Downloading => Self::Downloading,
-            wrenflow_core::transcription::local::ModelState::Compiling => Self::Compiling,
-            wrenflow_core::transcription::local::ModelState::Ready => Self::Ready,
-            wrenflow_core::transcription::local::ModelState::Error(msg) => Self::Error { message: msg },
-        }
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct TranscribeResult {
+    pub text: String,
+    pub error: Option<String>,
+}
+
+/// Callback for model download/load progress.
+#[uniffi::export(callback_interface)]
+pub trait FfiModelProgressListener: Send + Sync {
+    fn on_state_changed(&self, state: ModelState);
+}
+
+/// Bridge: FfiModelProgressListener → domain ModelDownloadListener
+struct ProgressBridge(Box<dyn FfiModelProgressListener>);
+
+impl wrenflow_core::model_management::ModelDownloadListener for ProgressBridge {
+    fn on_progress(&self, p: wrenflow_core::model_management::DownloadProgress) {
+        let fraction = p.fraction().unwrap_or(0.0);
+        self.0.on_state_changed(ModelState::Downloading {
+            progress_fraction: fraction,
+            current_file: p.current_file,
+        });
+    }
+    fn on_state_changed(&self, s: wrenflow_core::model_management::LocalModelState) {
+        let state = match s {
+            wrenflow_core::model_management::LocalModelState::NotDownloaded => ModelState::NotDownloaded,
+            wrenflow_core::model_management::LocalModelState::Downloading(p) => ModelState::Downloading {
+                progress_fraction: p.fraction().unwrap_or(0.0),
+                current_file: p.current_file,
+            },
+            wrenflow_core::model_management::LocalModelState::Loading => ModelState::Loading,
+            wrenflow_core::model_management::LocalModelState::Ready => ModelState::Ready,
+            wrenflow_core::model_management::LocalModelState::Error(msg) => ModelState::Error { message: msg },
+        };
+        self.0.on_state_changed(state);
     }
 }
 
 #[derive(uniffi::Object)]
 pub struct FfiLocalTranscriptionEngine {
     inner: std::sync::Mutex<wrenflow_core::transcription_local::LocalTranscriptionEngine>,
+    runtime: tokio::runtime::Runtime,
 }
 
 #[uniffi::export]
@@ -225,32 +256,77 @@ impl FfiLocalTranscriptionEngine {
     pub fn new() -> Self {
         Self {
             inner: std::sync::Mutex::new(wrenflow_core::transcription_local::LocalTranscriptionEngine::new()),
+            runtime: tokio::runtime::Runtime::new().expect("tokio runtime"),
         }
     }
 
+    /// Current model state.
     pub fn state(&self) -> ModelState {
-        self.inner.lock().unwrap().state().clone().into()
+        let s = self.inner.lock().unwrap().state().clone();
+        match s {
+            wrenflow_core::transcription::local::ModelState::NotLoaded => ModelState::NotDownloaded,
+            wrenflow_core::transcription::local::ModelState::Downloading => ModelState::Downloading {
+                progress_fraction: 0.0, current_file: String::new(),
+            },
+            wrenflow_core::transcription::local::ModelState::Compiling => ModelState::Loading,
+            wrenflow_core::transcription::local::ModelState::Ready => ModelState::Ready,
+            wrenflow_core::transcription::local::ModelState::Error(msg) => ModelState::Error { message: msg },
+        }
     }
 
-    /// Initialize the model from a directory path. Returns error message or nil.
-    pub fn initialize(&self, model_dir: String) -> Option<String> {
+    /// Check if model files exist at the given path.
+    pub fn is_model_downloaded(&self, model_dir: String) -> bool {
+        let model = wrenflow_core::model_management::default_parakeet_model();
+        wrenflow_core::model_downloader::is_model_present(&model, std::path::Path::new(&model_dir))
+    }
+
+    /// Download model files (blocking — call from background thread).
+    /// Reports progress via listener.
+    pub fn download_model(&self, model_dir: String, listener: Box<dyn FfiModelProgressListener>) -> Option<String> {
+        let model = wrenflow_core::model_management::default_parakeet_model();
+        let bridge = std::sync::Arc::new(ProgressBridge(listener));
+        bridge.0.on_state_changed(ModelState::Downloading {
+            progress_fraction: 0.0, current_file: String::new(),
+        });
+
+        match self.runtime.block_on(wrenflow_core::model_downloader::download_model(
+            &model,
+            std::path::Path::new(&model_dir),
+            bridge,
+        )) {
+            Ok(_) => None,
+            Err(e) => Some(e),
+        }
+    }
+
+    /// Load the model into memory for inference (blocking).
+    pub fn load_model(&self, model_dir: String) -> Option<String> {
         match self.inner.lock().unwrap().initialize(std::path::Path::new(&model_dir), None) {
             Ok(()) => None,
             Err(e) => Some(e.to_string()),
         }
     }
 
-    /// Transcribe a WAV file. Returns text, or error message if failed.
+    /// Download (if needed) + load model. Full initialization flow.
+    pub fn initialize_with_download(&self, model_dir: String, listener: Box<dyn FfiModelProgressListener>) -> Option<String> {
+        // Step 1: Download if needed
+        if !self.is_model_downloaded(model_dir.clone()) {
+            if let Some(err) = self.download_model(model_dir.clone(), listener) {
+                return Some(err);
+            }
+        }
+
+        // Step 2: Load
+        // Note: listener was consumed by download_model. For the loading phase,
+        // the caller polls state() to see Loading → Ready.
+        self.load_model(model_dir)
+    }
+
+    /// Transcribe a WAV file.
     pub fn transcribe_file(&self, file_path: String) -> TranscribeResult {
         match self.inner.lock().unwrap().transcribe_file(std::path::Path::new(&file_path)) {
             Ok(text) => TranscribeResult { text, error: None },
             Err(e) => TranscribeResult { text: String::new(), error: Some(e.to_string()) },
         }
     }
-}
-
-#[derive(Debug, Clone, uniffi::Record)]
-pub struct TranscribeResult {
-    pub text: String,
-    pub error: Option<String>,
 }

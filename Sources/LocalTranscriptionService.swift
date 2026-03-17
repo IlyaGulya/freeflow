@@ -1,11 +1,15 @@
 import Foundation
 import os.log
 
+#if canImport(wrenflow_ffiFFI)
+import wrenflow_ffiFFI
+#endif
+
 private let ltLog = OSLog(subsystem: "me.gulya.wrenflow", category: "LocalTranscription")
 
 enum LocalTranscriptionState: Equatable {
     case notLoaded
-    case downloading
+    case downloading(progress: Double)
     case compiling
     case ready
     case error(String)
@@ -18,6 +22,18 @@ enum LocalTranscriptionState: Equatable {
     var isLoading: Bool {
         switch self {
         case .downloading, .compiling: return true
+        default: return false
+        }
+    }
+
+    // Backward compat for UI that checks == .downloading without associated value
+    static func == (lhs: LocalTranscriptionState, rhs: LocalTranscriptionState) -> Bool {
+        switch (lhs, rhs) {
+        case (.notLoaded, .notLoaded): return true
+        case (.downloading, .downloading): return true
+        case (.compiling, .compiling): return true
+        case (.ready, .ready): return true
+        case (.error(let a), .error(let b)): return a == b
         default: return false
         }
     }
@@ -41,51 +57,83 @@ enum LocalTranscriptionError: LocalizedError {
 }
 
 /// Local transcription using Rust parakeet-rs via FFI.
-/// Replaces the previous FluidAudio (CoreML) implementation.
+/// Downloads ONNX model from HuggingFace if not present, then loads.
 final class LocalTranscriptionService: ObservableObject, @unchecked Sendable {
     @Published var state: LocalTranscriptionState = .notLoaded
 
     #if canImport(wrenflow_ffiFFI)
     private var engine: FfiLocalTranscriptionEngine?
+    private var progressListener: SwiftModelProgressListener?
     #endif
 
-    /// Model directory path (parakeet-rs downloads/caches models here).
     private var modelDir: String {
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        return "\(home)/Library/Application Support/Wrenflow/Models/parakeet-tdt"
+        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        return support.appendingPathComponent("Wrenflow/Models/parakeet-tdt").path
     }
 
     func initialize() {
         guard !state.isReady && !state.isLoading else { return }
-        os_log(.info, log: ltLog, "initialize() — loading model via Rust parakeet-rs")
-        state = .compiling
+        os_log(.info, log: ltLog, "initialize() — download + load via Rust")
 
         #if canImport(wrenflow_ffiFFI)
-        Task.detached { [weak self] in
-            guard let self else { return }
-            let eng = FfiLocalTranscriptionEngine()
+        let eng = FfiLocalTranscriptionEngine()
+        self.engine = eng
 
-            // Create model dir if needed
-            try? FileManager.default.createDirectory(
-                atPath: self.modelDir, withIntermediateDirectories: true)
-
-            if let error = eng.initialize(modelDir: self.modelDir) {
-                os_log(.error, log: ltLog, "model init failed: %{public}@", error)
-                await MainActor.run {
-                    self.state = .error(error)
-                }
-            } else {
-                os_log(.info, log: ltLog, "model ready")
-                await MainActor.run {
-                    self.engine = eng
-                    self.state = .ready
-                }
+        let listener = SwiftModelProgressListener { [weak self] newState in
+            DispatchQueue.main.async {
+                self?.handleStateUpdate(newState)
             }
         }
+        self.progressListener = listener
+
+        state = .downloading(progress: 0)
+
+        // Run on background thread (download + load are blocking)
+        let modelDir = self.modelDir
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            // Download if needed
+            if !eng.isModelDownloaded(modelDir: modelDir) {
+                os_log(.info, log: ltLog, "Model not found, downloading...")
+                if let error = eng.downloadModel(modelDir: modelDir, listener: listener) {
+                    os_log(.error, log: ltLog, "Download failed: %{public}@", error)
+                    DispatchQueue.main.async { self?.state = .error(error) }
+                    return
+                }
+            }
+
+            // Load model
+            DispatchQueue.main.async { self?.state = .compiling }
+            os_log(.info, log: ltLog, "Loading model...")
+            if let error = eng.loadModel(modelDir: modelDir) {
+                os_log(.error, log: ltLog, "Load failed: %{public}@", error)
+                DispatchQueue.main.async { self?.state = .error(error) }
+                return
+            }
+
+            os_log(.info, log: ltLog, "Model ready")
+            DispatchQueue.main.async { self?.state = .ready }
+        }
         #else
-        state = .error("Rust FFI not available — local transcription disabled")
+        state = .error("Rust FFI not available")
         #endif
     }
+
+    #if canImport(wrenflow_ffiFFI)
+    private func handleStateUpdate(_ ffiState: ModelState) {
+        switch ffiState {
+        case .notDownloaded:
+            state = .notLoaded
+        case let .downloading(fraction, _):
+            state = .downloading(progress: fraction)
+        case .loading:
+            state = .compiling
+        case .ready:
+            state = .ready
+        case let .error(msg):
+            state = .error(msg)
+        }
+    }
+    #endif
 
     func transcribe(fileURL: URL) async throws -> String {
         #if canImport(wrenflow_ffiFFI)
@@ -93,20 +141,35 @@ final class LocalTranscriptionService: ObservableObject, @unchecked Sendable {
             throw LocalTranscriptionError.modelNotReady
         }
 
-        os_log(.info, log: ltLog, "transcribe() starting for: %{public}@", fileURL.lastPathComponent)
+        os_log(.info, log: ltLog, "transcribe() for: %{public}@", fileURL.lastPathComponent)
         let start = CFAbsoluteTimeGetCurrent()
 
         let result = engine.transcribeFile(filePath: fileURL.path)
         if let error = result.error {
-            os_log(.error, log: ltLog, "transcription failed: %{public}@", error)
             throw LocalTranscriptionError.transcriptionFailed(error)
         }
 
         let elapsed = (CFAbsoluteTimeGetCurrent() - start) * 1000
-        os_log(.info, log: ltLog, "transcription done in %.1fms: '%{public}@'", elapsed, result.text)
+        os_log(.info, log: ltLog, "done in %.1fms: '%{public}@'", elapsed, result.text)
         return result.text
         #else
         throw LocalTranscriptionError.transcriptionFailed("Rust FFI not available")
         #endif
     }
 }
+
+// MARK: - Progress listener bridge
+
+#if canImport(wrenflow_ffiFFI)
+final class SwiftModelProgressListener: FfiModelProgressListener {
+    private let callback: (ModelState) -> Void
+
+    init(callback: @escaping (ModelState) -> Void) {
+        self.callback = callback
+    }
+
+    func onStateChanged(state: ModelState) {
+        callback(state)
+    }
+}
+#endif

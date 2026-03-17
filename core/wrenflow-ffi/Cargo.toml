@@ -10,5 +10,7 @@ name = "wrenflow_ffi"
 
 [dependencies]
 wrenflow-core = { path = "../wrenflow-core" }
+wrenflow-domain = { path = "../wrenflow-domain" }
 uniffi.workspace = true
 serde_json.workspace = true
+tokio.workspace = true
