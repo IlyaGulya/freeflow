@@ -1,5 +1,6 @@
 import SwiftUI
 import Combine
+import AVFoundation
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     let appState = AppState()
@@ -33,11 +34,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 UpdateManager.shared.startPeriodicChecks()
             }
 
-            if !AXIsProcessTrusted() {
-                appState.showAccessibilityAlert()
-            }
+            checkPermissionsOnLaunch()
 
-            if !appState.localTranscriptionService.state.isReady {
+            if appState.selectedTranscriptionProvider == .local
+                && !appState.localTranscriptionService.state.isReady {
                 showModelDownloadWindow()
             }
         }
@@ -139,6 +139,54 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         if !AXIsProcessTrusted() {
             appState.showAccessibilityAlert()
+        }
+    }
+
+    /// Check permissions on launch and show a single consolidated alert
+    /// listing all missing permissions, instead of separate alerts for each.
+    private func checkPermissionsOnLaunch() {
+        var missing: [(String, String)] = [] // (name, instructions)
+
+        if !AXIsProcessTrusted() {
+            missing.append(("Accessibility", "Required to paste transcribed text into apps."))
+        }
+
+        let micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
+        if micStatus == .denied || micStatus == .restricted {
+            missing.append(("Microphone", "Required to record audio for transcription."))
+        }
+
+        // Screen Recording is optional — only warn if post-processing is enabled
+        if appState.postProcessingEnabled && !CGPreflightScreenCaptureAccess() {
+            missing.append(("Screen Recording", "Needed for context-aware post-processing."))
+        }
+
+        guard !missing.isEmpty else { return }
+
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.icon = NSImage(systemSymbolName: "exclamationmark.triangle.fill", accessibilityDescription: nil)
+
+        if missing.count == 1 {
+            let (name, desc) = missing[0]
+            alert.messageText = "\(name) Permission Required"
+            alert.informativeText = "\(desc)\n\nGo to System Settings > Privacy & Security > \(name) and enable Wrenflow."
+        } else {
+            alert.messageText = "Missing Permissions"
+            let list = missing.map { "• \($0.0): \($0.1)" }.joined(separator: "\n")
+            alert.informativeText = "\(list)\n\nGo to System Settings > Privacy & Security to grant access."
+        }
+
+        alert.addButton(withTitle: "Open System Settings")
+        alert.addButton(withTitle: "Later")
+
+        let response = alert.runModal()
+        if response == .alertFirstButtonReturn {
+            if missing.contains(where: { $0.0 == "Accessibility" }) {
+                appState.openAccessibilitySettings()
+            } else {
+                NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy")!)
+            }
         }
     }
 
