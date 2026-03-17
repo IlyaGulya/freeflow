@@ -227,24 +227,32 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let hostingView = NSHostingView(rootView: view)
         hostingView.setFrameSize(hostingView.fittingSize)
 
-        let window = NSWindow(
+        let panel = NSPanel(
             contentRect: NSRect(origin: .zero, size: hostingView.fittingSize),
-            styleMask: [.titled, .closable],
+            styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
         )
-        window.title = "Wrenflow"
-        window.contentView = hostingView
-        window.isReleasedWhenClosed = false
-        window.center()
-        window.makeKeyAndOrderFront(nil)
+        panel.contentView = hostingView
+        panel.isReleasedWhenClosed = false
+        panel.isFloatingPanel = true
+        panel.level = .floating
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = true
+        // Round corners
+        panel.contentView?.wantsLayer = true
+        panel.contentView?.layer?.cornerRadius = 12
+        panel.contentView?.layer?.masksToBounds = true
+        panel.center()
+        panel.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
 
-        modelDownloadWindow = window
+        modelDownloadWindow = panel
 
         NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification,
-            object: window,
+            object: panel,
             queue: .main
         ) { [weak self] _ in
             self?.modelDownloadWindow = nil
