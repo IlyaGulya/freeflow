@@ -1,7 +1,10 @@
 //! Local Parakeet TDT transcription via parakeet-rs (ONNX Runtime).
 //!
-//! Uses the `parakeet-rs` crate which wraps NVIDIA's Parakeet TDT model
-//! with ONNX Runtime inference. Cross-platform (macOS, Android, Windows, Linux).
+//! Uses `ParakeetTDT` from parakeet-rs which loads from a directory containing:
+//! - encoder-model.int8.onnx (or encoder-model.onnx)
+//! - decoder_joint-model.int8.onnx (or decoder_joint-model.onnx)
+//! - vocab.txt
+//! - nemo128.onnx
 
 use parakeet_rs::Transcriber;
 use std::path::Path;
@@ -20,10 +23,10 @@ pub enum LocalTranscriptionError {
     AudioTooShort,
 }
 
-/// Local transcription engine using parakeet-rs.
+/// Local transcription engine using parakeet-rs ParakeetTDT.
 pub struct LocalTranscriptionEngine {
     state: ModelState,
-    model: Option<parakeet_rs::Parakeet>,
+    model: Option<parakeet_rs::ParakeetTDT>,
 }
 
 impl LocalTranscriptionEngine {
@@ -38,7 +41,7 @@ impl LocalTranscriptionEngine {
         &self.state
     }
 
-    /// Initialize: load model from directory.
+    /// Initialize: load TDT model from directory.
     pub fn initialize(
         &mut self,
         model_dir: &Path,
@@ -53,14 +56,14 @@ impl LocalTranscriptionEngine {
             cb(&self.state);
         }
 
-        match parakeet_rs::Parakeet::from_pretrained(model_dir, None) {
+        match parakeet_rs::ParakeetTDT::from_pretrained(model_dir, None) {
             Ok(model) => {
                 self.model = Some(model);
                 self.state = ModelState::Ready;
                 if let Some(cb) = on_state_change {
                     cb(&self.state);
                 }
-                log::info!("Parakeet model loaded from {:?}", model_dir);
+                log::info!("ParakeetTDT model loaded from {:?}", model_dir);
                 Ok(())
             }
             Err(e) => {
