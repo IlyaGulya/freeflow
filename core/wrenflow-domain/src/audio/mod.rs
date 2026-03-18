@@ -4,11 +4,15 @@ pub mod ring_buffer;
 pub mod resampler;
 pub mod wav;
 pub mod level;
+pub mod device;
+pub mod recording;
 
 pub use ring_buffer::SpscRingBuffer;
 pub use resampler::resample_to_16khz;
 pub use wav::{encode_wav, WavError};
 pub use level::AudioLevel;
+pub use device::AudioDeviceInfo;
+pub use recording::{RecordingMetrics, RecordingResult};
 
 /// Minimum recording duration in seconds (Parakeet requirement).
 pub const MIN_DURATION_SECS: f64 = 1.0;

@@ -251,6 +251,27 @@ typedef void (*UniffiForeignFutureCompleteVoid)(uint64_t, UniffiForeignFutureStr
     );
 
 #endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_AUDIO_CAPTURE_LISTENER_METHOD0
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_AUDIO_CAPTURE_LISTENER_METHOD0
+typedef void (*UniffiCallbackInterfaceFfiAudioCaptureListenerMethod0)(uint64_t, float, void* _Nonnull, 
+        RustCallStatus *_Nonnull uniffiCallStatus
+    );
+
+#endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_AUDIO_CAPTURE_LISTENER_METHOD1
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_AUDIO_CAPTURE_LISTENER_METHOD1
+typedef void (*UniffiCallbackInterfaceFfiAudioCaptureListenerMethod1)(uint64_t, void* _Nonnull, 
+        RustCallStatus *_Nonnull uniffiCallStatus
+    );
+
+#endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_AUDIO_CAPTURE_LISTENER_METHOD2
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_AUDIO_CAPTURE_LISTENER_METHOD2
+typedef void (*UniffiCallbackInterfaceFfiAudioCaptureListenerMethod2)(uint64_t, RustBuffer, void* _Nonnull, 
+        RustCallStatus *_Nonnull uniffiCallStatus
+    );
+
+#endif
 #ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_MODEL_PROGRESS_LISTENER_METHOD0
 #define UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_MODEL_PROGRESS_LISTENER_METHOD0
 typedef void (*UniffiCallbackInterfaceFfiModelProgressListenerMethod0)(uint64_t, RustBuffer, void* _Nonnull, 
@@ -293,6 +314,16 @@ typedef void (*UniffiCallbackInterfaceFfiPipelineListenerMethod4)(uint64_t, Rust
     );
 
 #endif
+#ifndef UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_FFI_AUDIO_CAPTURE_LISTENER
+#define UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_FFI_AUDIO_CAPTURE_LISTENER
+typedef struct UniffiVTableCallbackInterfaceFfiAudioCaptureListener {
+    UniffiCallbackInterfaceFfiAudioCaptureListenerMethod0 _Nonnull onAudioLevel;
+    UniffiCallbackInterfaceFfiAudioCaptureListenerMethod1 _Nonnull onRecordingReady;
+    UniffiCallbackInterfaceFfiAudioCaptureListenerMethod2 _Nonnull onError;
+    UniffiCallbackInterfaceFree _Nonnull uniffiFree;
+} UniffiVTableCallbackInterfaceFfiAudioCaptureListener;
+
+#endif
 #ifndef UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_FFI_MODEL_PROGRESS_LISTENER
 #define UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_FFI_MODEL_PROGRESS_LISTENER
 typedef struct UniffiVTableCallbackInterfaceFfiModelProgressListener {
@@ -312,6 +343,47 @@ typedef struct UniffiVTableCallbackInterfaceFfiPipelineListener {
     UniffiCallbackInterfaceFree _Nonnull uniffiFree;
 } UniffiVTableCallbackInterfaceFfiPipelineListener;
 
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_WRENFLOW_FFI_FN_CLONE_FFIAUDIOCAPTURE
+#define UNIFFI_FFIDEF_UNIFFI_WRENFLOW_FFI_FN_CLONE_FFIAUDIOCAPTURE
+void*_Nonnull uniffi_wrenflow_ffi_fn_clone_ffiaudiocapture(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_WRENFLOW_FFI_FN_FREE_FFIAUDIOCAPTURE
+#define UNIFFI_FFIDEF_UNIFFI_WRENFLOW_FFI_FN_FREE_FFIAUDIOCAPTURE
+void uniffi_wrenflow_ffi_fn_free_ffiaudiocapture(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_WRENFLOW_FFI_FN_CONSTRUCTOR_FFIAUDIOCAPTURE_NEW
+#define UNIFFI_FFIDEF_UNIFFI_WRENFLOW_FFI_FN_CONSTRUCTOR_FFIAUDIOCAPTURE_NEW
+void*_Nonnull uniffi_wrenflow_ffi_fn_constructor_ffiaudiocapture_new(RustCallStatus *_Nonnull out_status
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_WRENFLOW_FFI_FN_METHOD_FFIAUDIOCAPTURE_CLEANUP
+#define UNIFFI_FFIDEF_UNIFFI_WRENFLOW_FFI_FN_METHOD_FFIAUDIOCAPTURE_CLEANUP
+void uniffi_wrenflow_ffi_fn_method_ffiaudiocapture_cleanup(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_WRENFLOW_FFI_FN_METHOD_FFIAUDIOCAPTURE_LIST_INPUT_DEVICES
+#define UNIFFI_FFIDEF_UNIFFI_WRENFLOW_FFI_FN_METHOD_FFIAUDIOCAPTURE_LIST_INPUT_DEVICES
+RustBuffer uniffi_wrenflow_ffi_fn_method_ffiaudiocapture_list_input_devices(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_WRENFLOW_FFI_FN_METHOD_FFIAUDIOCAPTURE_START_RECORDING
+#define UNIFFI_FFIDEF_UNIFFI_WRENFLOW_FFI_FN_METHOD_FFIAUDIOCAPTURE_START_RECORDING
+RustBuffer uniffi_wrenflow_ffi_fn_method_ffiaudiocapture_start_recording(void*_Nonnull ptr, RustBuffer device_id, uint64_t listener, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_WRENFLOW_FFI_FN_METHOD_FFIAUDIOCAPTURE_STOP_RECORDING
+#define UNIFFI_FFIDEF_UNIFFI_WRENFLOW_FFI_FN_METHOD_FFIAUDIOCAPTURE_STOP_RECORDING
+RustBuffer uniffi_wrenflow_ffi_fn_method_ffiaudiocapture_stop_recording(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_WRENFLOW_FFI_FN_METHOD_FFIAUDIOCAPTURE_WARM_UP
+#define UNIFFI_FFIDEF_UNIFFI_WRENFLOW_FFI_FN_METHOD_FFIAUDIOCAPTURE_WARM_UP
+RustBuffer uniffi_wrenflow_ffi_fn_method_ffiaudiocapture_warm_up(void*_Nonnull ptr, RustBuffer device_id, RustCallStatus *_Nonnull out_status
+);
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_WRENFLOW_FFI_FN_CLONE_FFILOCALTRANSCRIPTIONENGINE
 #define UNIFFI_FFIDEF_UNIFFI_WRENFLOW_FFI_FN_CLONE_FFILOCALTRANSCRIPTIONENGINE
@@ -432,6 +504,11 @@ RustBuffer uniffi_wrenflow_ffi_fn_method_ffipipelineengine_state(void*_Nonnull p
 #ifndef UNIFFI_FFIDEF_UNIFFI_WRENFLOW_FFI_FN_METHOD_FFIPIPELINEENGINE_UPDATE_CONFIG
 #define UNIFFI_FFIDEF_UNIFFI_WRENFLOW_FFI_FN_METHOD_FFIPIPELINEENGINE_UPDATE_CONFIG
 void uniffi_wrenflow_ffi_fn_method_ffipipelineengine_update_config(void*_Nonnull ptr, RustBuffer config, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_WRENFLOW_FFI_FN_INIT_CALLBACK_VTABLE_FFIAUDIOCAPTURELISTENER
+#define UNIFFI_FFIDEF_UNIFFI_WRENFLOW_FFI_FN_INIT_CALLBACK_VTABLE_FFIAUDIOCAPTURELISTENER
+void uniffi_wrenflow_ffi_fn_init_callback_vtable_ffiaudiocapturelistener(const UniffiVTableCallbackInterfaceFfiAudioCaptureListener* _Nonnull vtable
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_WRENFLOW_FFI_FN_INIT_CALLBACK_VTABLE_FFIMODELPROGRESSLISTENER
@@ -724,6 +801,36 @@ void ffi_wrenflow_ffi_rust_future_free_void(uint64_t handle
 void ffi_wrenflow_ffi_rust_future_complete_void(uint64_t handle, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_WRENFLOW_FFI_CHECKSUM_METHOD_FFIAUDIOCAPTURE_CLEANUP
+#define UNIFFI_FFIDEF_UNIFFI_WRENFLOW_FFI_CHECKSUM_METHOD_FFIAUDIOCAPTURE_CLEANUP
+uint16_t uniffi_wrenflow_ffi_checksum_method_ffiaudiocapture_cleanup(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_WRENFLOW_FFI_CHECKSUM_METHOD_FFIAUDIOCAPTURE_LIST_INPUT_DEVICES
+#define UNIFFI_FFIDEF_UNIFFI_WRENFLOW_FFI_CHECKSUM_METHOD_FFIAUDIOCAPTURE_LIST_INPUT_DEVICES
+uint16_t uniffi_wrenflow_ffi_checksum_method_ffiaudiocapture_list_input_devices(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_WRENFLOW_FFI_CHECKSUM_METHOD_FFIAUDIOCAPTURE_START_RECORDING
+#define UNIFFI_FFIDEF_UNIFFI_WRENFLOW_FFI_CHECKSUM_METHOD_FFIAUDIOCAPTURE_START_RECORDING
+uint16_t uniffi_wrenflow_ffi_checksum_method_ffiaudiocapture_start_recording(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_WRENFLOW_FFI_CHECKSUM_METHOD_FFIAUDIOCAPTURE_STOP_RECORDING
+#define UNIFFI_FFIDEF_UNIFFI_WRENFLOW_FFI_CHECKSUM_METHOD_FFIAUDIOCAPTURE_STOP_RECORDING
+uint16_t uniffi_wrenflow_ffi_checksum_method_ffiaudiocapture_stop_recording(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_WRENFLOW_FFI_CHECKSUM_METHOD_FFIAUDIOCAPTURE_WARM_UP
+#define UNIFFI_FFIDEF_UNIFFI_WRENFLOW_FFI_CHECKSUM_METHOD_FFIAUDIOCAPTURE_WARM_UP
+uint16_t uniffi_wrenflow_ffi_checksum_method_ffiaudiocapture_warm_up(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_WRENFLOW_FFI_CHECKSUM_METHOD_FFILOCALTRANSCRIPTIONENGINE_CANCEL_DOWNLOAD
 #define UNIFFI_FFIDEF_UNIFFI_WRENFLOW_FFI_CHECKSUM_METHOD_FFILOCALTRANSCRIPTIONENGINE_CANCEL_DOWNLOAD
 uint16_t uniffi_wrenflow_ffi_checksum_method_ffilocaltranscriptionengine_cancel_download(void
@@ -832,6 +939,12 @@ uint16_t uniffi_wrenflow_ffi_checksum_method_ffipipelineengine_update_config(voi
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_WRENFLOW_FFI_CHECKSUM_CONSTRUCTOR_FFIAUDIOCAPTURE_NEW
+#define UNIFFI_FFIDEF_UNIFFI_WRENFLOW_FFI_CHECKSUM_CONSTRUCTOR_FFIAUDIOCAPTURE_NEW
+uint16_t uniffi_wrenflow_ffi_checksum_constructor_ffiaudiocapture_new(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_WRENFLOW_FFI_CHECKSUM_CONSTRUCTOR_FFILOCALTRANSCRIPTIONENGINE_NEW
 #define UNIFFI_FFIDEF_UNIFFI_WRENFLOW_FFI_CHECKSUM_CONSTRUCTOR_FFILOCALTRANSCRIPTIONENGINE_NEW
 uint16_t uniffi_wrenflow_ffi_checksum_constructor_ffilocaltranscriptionengine_new(void
@@ -841,6 +954,24 @@ uint16_t uniffi_wrenflow_ffi_checksum_constructor_ffilocaltranscriptionengine_ne
 #ifndef UNIFFI_FFIDEF_UNIFFI_WRENFLOW_FFI_CHECKSUM_CONSTRUCTOR_FFIPIPELINEENGINE_NEW
 #define UNIFFI_FFIDEF_UNIFFI_WRENFLOW_FFI_CHECKSUM_CONSTRUCTOR_FFIPIPELINEENGINE_NEW
 uint16_t uniffi_wrenflow_ffi_checksum_constructor_ffipipelineengine_new(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_WRENFLOW_FFI_CHECKSUM_METHOD_FFIAUDIOCAPTURELISTENER_ON_AUDIO_LEVEL
+#define UNIFFI_FFIDEF_UNIFFI_WRENFLOW_FFI_CHECKSUM_METHOD_FFIAUDIOCAPTURELISTENER_ON_AUDIO_LEVEL
+uint16_t uniffi_wrenflow_ffi_checksum_method_ffiaudiocapturelistener_on_audio_level(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_WRENFLOW_FFI_CHECKSUM_METHOD_FFIAUDIOCAPTURELISTENER_ON_RECORDING_READY
+#define UNIFFI_FFIDEF_UNIFFI_WRENFLOW_FFI_CHECKSUM_METHOD_FFIAUDIOCAPTURELISTENER_ON_RECORDING_READY
+uint16_t uniffi_wrenflow_ffi_checksum_method_ffiaudiocapturelistener_on_recording_ready(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_WRENFLOW_FFI_CHECKSUM_METHOD_FFIAUDIOCAPTURELISTENER_ON_ERROR
+#define UNIFFI_FFIDEF_UNIFFI_WRENFLOW_FFI_CHECKSUM_METHOD_FFIAUDIOCAPTURELISTENER_ON_ERROR
+uint16_t uniffi_wrenflow_ffi_checksum_method_ffiaudiocapturelistener_on_error(void
     
 );
 #endif

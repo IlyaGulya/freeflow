@@ -344,3 +344,125 @@ impl FfiLocalTranscriptionEngine {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// Audio Capture FFI
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct FfiAudioDeviceInfo {
+    pub id: String,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct FfiRecordingResult {
+    pub file_path: String,
+    pub duration_ms: f64,
+    pub file_size_bytes: u64,
+    pub device_sample_rate: u32,
+    pub first_audio_ms: Option<f64>,
+}
+
+/// Callback interface for audio capture events.
+#[uniffi::export(callback_interface)]
+pub trait FfiAudioCaptureListener: Send + Sync {
+    fn on_audio_level(&self, level: f32);
+    fn on_recording_ready(&self);
+    fn on_error(&self, message: String);
+}
+
+/// Adapter: bridges FfiAudioCaptureListener → AudioCaptureListener
+struct AudioListenerBridge(Box<dyn FfiAudioCaptureListener>);
+
+impl wrenflow_core::audio_capture::AudioCaptureListener for AudioListenerBridge {
+    fn on_audio_level(&self, level: f32) {
+        self.0.on_audio_level(level);
+    }
+    fn on_recording_ready(&self) {
+        self.0.on_recording_ready();
+    }
+    fn on_error(&self, message: String) {
+        self.0.on_error(message);
+    }
+}
+
+#[derive(uniffi::Object)]
+pub struct FfiAudioCapture {
+    inner: Mutex<wrenflow_core::audio_capture::AudioCapture>,
+}
+
+#[uniffi::export]
+impl FfiAudioCapture {
+    #[uniffi::constructor]
+    pub fn new() -> Self {
+        Self {
+            inner: Mutex::new(wrenflow_core::audio_capture::AudioCapture::new()),
+        }
+    }
+
+    /// Enumerate available audio input devices.
+    pub fn list_input_devices(&self) -> Vec<FfiAudioDeviceInfo> {
+        wrenflow_core::audio_capture::AudioCapture::list_input_devices()
+            .into_iter()
+            .map(|d| FfiAudioDeviceInfo {
+                id: d.id,
+                name: d.name,
+            })
+            .collect()
+    }
+
+    /// Pre-resolve device and config for fast start. Returns None on success, Some(error) on failure.
+    pub fn warm_up(&self, device_id: Option<String>) -> Option<String> {
+        match self
+            .inner
+            .lock()
+            .unwrap()
+            .warm_up(device_id.as_deref())
+        {
+            Ok(()) => None,
+            Err(e) => Some(e),
+        }
+    }
+
+    /// Start recording. Returns None on success, Some(error) on failure.
+    pub fn start_recording(
+        &self,
+        device_id: Option<String>,
+        listener: Box<dyn FfiAudioCaptureListener>,
+    ) -> Option<String> {
+        let bridge = std::sync::Arc::new(AudioListenerBridge(listener));
+        match self
+            .inner
+            .lock()
+            .unwrap()
+            .start_recording(device_id.as_deref(), bridge)
+        {
+            Ok(()) => None,
+            Err(e) => Some(e),
+        }
+    }
+
+    /// Stop recording and produce a WAV file. Returns None if not recording.
+    pub fn stop_recording(&self) -> Option<FfiRecordingResult> {
+        match self.inner.lock().unwrap().stop_recording() {
+            Ok(Some(r)) => Some(FfiRecordingResult {
+                file_path: r.file_path,
+                duration_ms: r.metrics.duration_ms,
+                file_size_bytes: r.metrics.file_size_bytes,
+                device_sample_rate: r.metrics.device_sample_rate,
+                first_audio_ms: r.metrics.first_audio_ms,
+            }),
+            Ok(None) => None,
+            Err(e) => {
+                log::error!("stop_recording error: {e}");
+                None
+            }
+        }
+    }
+
+    /// Release cached resources.
+    pub fn cleanup(&self) {
+        self.inner.lock().unwrap().cleanup();
+    }
+}

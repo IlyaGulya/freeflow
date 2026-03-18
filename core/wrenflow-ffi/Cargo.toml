@@ -14,3 +14,4 @@ wrenflow-domain = { path = "../wrenflow-domain" }
 uniffi.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
+log.workspace = true

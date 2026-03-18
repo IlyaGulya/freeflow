@@ -16,6 +16,7 @@ thiserror.workspace = true
 log.workspace = true
 parakeet-rs.workspace = true
 tokio-stream = "0.1"
+cpal.workspace = true
 
 [dev-dependencies]
 tempfile = "3"

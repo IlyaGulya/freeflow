@@ -406,6 +406,22 @@ private let UNIFFI_CALLBACK_UNEXPECTED_ERROR: Int32 = 2
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterUInt32: FfiConverterPrimitive {
+    typealias FfiType = UInt32
+    typealias SwiftType = UInt32
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> UInt32 {
+        return try lift(readInt(&buf))
+    }
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterUInt64: FfiConverterPrimitive {
     typealias FfiType = UInt64
     typealias SwiftType = UInt64
@@ -416,6 +432,22 @@ fileprivate struct FfiConverterUInt64: FfiConverterPrimitive {
 
     public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
         writeInt(&buf, lower(value))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterFloat: FfiConverterPrimitive {
+    typealias FfiType = Float
+    typealias SwiftType = Float
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Float {
+        return try lift(readFloat(&buf))
+    }
+
+    public static func write(_ value: Float, into buf: inout [UInt8]) {
+        writeFloat(&buf, lower(value))
     }
 }
 
@@ -499,6 +531,203 @@ fileprivate struct FfiConverterString: FfiConverter {
         writeBytes(&buf, value.utf8)
     }
 }
+
+
+
+
+public protocol FfiAudioCaptureProtocol: AnyObject, Sendable {
+    
+    /**
+     * Release cached resources.
+     */
+    func cleanup() 
+    
+    /**
+     * Enumerate available audio input devices.
+     */
+    func listInputDevices()  -> [FfiAudioDeviceInfo]
+    
+    /**
+     * Start recording. Returns None on success, Some(error) on failure.
+     */
+    func startRecording(deviceId: String?, listener: FfiAudioCaptureListener)  -> String?
+    
+    /**
+     * Stop recording and produce a WAV file. Returns None if not recording.
+     */
+    func stopRecording()  -> FfiRecordingResult?
+    
+    /**
+     * Pre-resolve device and config for fast start. Returns None on success, Some(error) on failure.
+     */
+    func warmUp(deviceId: String?)  -> String?
+    
+}
+open class FfiAudioCapture: FfiAudioCaptureProtocol, @unchecked Sendable {
+    fileprivate let pointer: UnsafeMutableRawPointer!
+
+    /// Used to instantiate a [FFIObject] without an actual pointer, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoPointer {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
+        self.pointer = pointer
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noPointer: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing [Pointer] the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noPointer: NoPointer) {
+        self.pointer = nil
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiClonePointer() -> UnsafeMutableRawPointer {
+        return try! rustCall { uniffi_wrenflow_ffi_fn_clone_ffiaudiocapture(self.pointer, $0) }
+    }
+public convenience init() {
+    let pointer =
+        try! rustCall() {
+    uniffi_wrenflow_ffi_fn_constructor_ffiaudiocapture_new($0
+    )
+}
+    self.init(unsafeFromRawPointer: pointer)
+}
+
+    deinit {
+        guard let pointer = pointer else {
+            return
+        }
+
+        try! rustCall { uniffi_wrenflow_ffi_fn_free_ffiaudiocapture(pointer, $0) }
+    }
+
+    
+
+    
+    /**
+     * Release cached resources.
+     */
+open func cleanup()  {try! rustCall() {
+    uniffi_wrenflow_ffi_fn_method_ffiaudiocapture_cleanup(self.uniffiClonePointer(),$0
+    )
+}
+}
+    
+    /**
+     * Enumerate available audio input devices.
+     */
+open func listInputDevices() -> [FfiAudioDeviceInfo]  {
+    return try!  FfiConverterSequenceTypeFfiAudioDeviceInfo.lift(try! rustCall() {
+    uniffi_wrenflow_ffi_fn_method_ffiaudiocapture_list_input_devices(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
+    /**
+     * Start recording. Returns None on success, Some(error) on failure.
+     */
+open func startRecording(deviceId: String?, listener: FfiAudioCaptureListener) -> String?  {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+    uniffi_wrenflow_ffi_fn_method_ffiaudiocapture_start_recording(self.uniffiClonePointer(),
+        FfiConverterOptionString.lower(deviceId),
+        FfiConverterCallbackInterfaceFfiAudioCaptureListener_lower(listener),$0
+    )
+})
+}
+    
+    /**
+     * Stop recording and produce a WAV file. Returns None if not recording.
+     */
+open func stopRecording() -> FfiRecordingResult?  {
+    return try!  FfiConverterOptionTypeFfiRecordingResult.lift(try! rustCall() {
+    uniffi_wrenflow_ffi_fn_method_ffiaudiocapture_stop_recording(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
+    /**
+     * Pre-resolve device and config for fast start. Returns None on success, Some(error) on failure.
+     */
+open func warmUp(deviceId: String?) -> String?  {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+    uniffi_wrenflow_ffi_fn_method_ffiaudiocapture_warm_up(self.uniffiClonePointer(),
+        FfiConverterOptionString.lower(deviceId),$0
+    )
+})
+}
+    
+
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiAudioCapture: FfiConverter {
+
+    typealias FfiType = UnsafeMutableRawPointer
+    typealias SwiftType = FfiAudioCapture
+
+    public static func lift(_ pointer: UnsafeMutableRawPointer) throws -> FfiAudioCapture {
+        return FfiAudioCapture(unsafeFromRawPointer: pointer)
+    }
+
+    public static func lower(_ value: FfiAudioCapture) -> UnsafeMutableRawPointer {
+        return value.uniffiClonePointer()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiAudioCapture {
+        let v: UInt64 = try readInt(&buf)
+        // The Rust code won't compile if a pointer won't fit in a UInt64.
+        // We have to go via `UInt` because that's the thing that's the size of a pointer.
+        let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: v))
+        if (ptr == nil) {
+            throw UniffiInternalError.unexpectedNullPointer
+        }
+        return try lift(ptr!)
+    }
+
+    public static func write(_ value: FfiAudioCapture, into buf: inout [UInt8]) {
+        // This fiddling is because `Int` is the thing that's the same size as a pointer.
+        // The Rust code won't compile if a pointer won't fit in a `UInt64`.
+        writeInt(&buf, UInt64(bitPattern: Int64(Int(bitPattern: lower(value)))))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiAudioCapture_lift(_ pointer: UnsafeMutableRawPointer) throws -> FfiAudioCapture {
+    return try FfiConverterTypeFfiAudioCapture.lift(pointer)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiAudioCapture_lower(_ value: FfiAudioCapture) -> UnsafeMutableRawPointer {
+    return FfiConverterTypeFfiAudioCapture.lower(value)
+}
+
+
 
 
 
@@ -1084,6 +1313,170 @@ public func FfiConverterTypeAppConfig_lift(_ buf: RustBuffer) throws -> AppConfi
 #endif
 public func FfiConverterTypeAppConfig_lower(_ value: AppConfig) -> RustBuffer {
     return FfiConverterTypeAppConfig.lower(value)
+}
+
+
+public struct FfiAudioDeviceInfo {
+    public var id: String
+    public var name: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, name: String) {
+        self.id = id
+        self.name = name
+    }
+}
+
+#if compiler(>=6)
+extension FfiAudioDeviceInfo: Sendable {}
+#endif
+
+
+extension FfiAudioDeviceInfo: Equatable, Hashable {
+    public static func ==(lhs: FfiAudioDeviceInfo, rhs: FfiAudioDeviceInfo) -> Bool {
+        if lhs.id != rhs.id {
+            return false
+        }
+        if lhs.name != rhs.name {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(name)
+    }
+}
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiAudioDeviceInfo: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiAudioDeviceInfo {
+        return
+            try FfiAudioDeviceInfo(
+                id: FfiConverterString.read(from: &buf), 
+                name: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiAudioDeviceInfo, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.name, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiAudioDeviceInfo_lift(_ buf: RustBuffer) throws -> FfiAudioDeviceInfo {
+    return try FfiConverterTypeFfiAudioDeviceInfo.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiAudioDeviceInfo_lower(_ value: FfiAudioDeviceInfo) -> RustBuffer {
+    return FfiConverterTypeFfiAudioDeviceInfo.lower(value)
+}
+
+
+public struct FfiRecordingResult {
+    public var filePath: String
+    public var durationMs: Double
+    public var fileSizeBytes: UInt64
+    public var deviceSampleRate: UInt32
+    public var firstAudioMs: Double?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(filePath: String, durationMs: Double, fileSizeBytes: UInt64, deviceSampleRate: UInt32, firstAudioMs: Double?) {
+        self.filePath = filePath
+        self.durationMs = durationMs
+        self.fileSizeBytes = fileSizeBytes
+        self.deviceSampleRate = deviceSampleRate
+        self.firstAudioMs = firstAudioMs
+    }
+}
+
+#if compiler(>=6)
+extension FfiRecordingResult: Sendable {}
+#endif
+
+
+extension FfiRecordingResult: Equatable, Hashable {
+    public static func ==(lhs: FfiRecordingResult, rhs: FfiRecordingResult) -> Bool {
+        if lhs.filePath != rhs.filePath {
+            return false
+        }
+        if lhs.durationMs != rhs.durationMs {
+            return false
+        }
+        if lhs.fileSizeBytes != rhs.fileSizeBytes {
+            return false
+        }
+        if lhs.deviceSampleRate != rhs.deviceSampleRate {
+            return false
+        }
+        if lhs.firstAudioMs != rhs.firstAudioMs {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(filePath)
+        hasher.combine(durationMs)
+        hasher.combine(fileSizeBytes)
+        hasher.combine(deviceSampleRate)
+        hasher.combine(firstAudioMs)
+    }
+}
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiRecordingResult: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiRecordingResult {
+        return
+            try FfiRecordingResult(
+                filePath: FfiConverterString.read(from: &buf), 
+                durationMs: FfiConverterDouble.read(from: &buf), 
+                fileSizeBytes: FfiConverterUInt64.read(from: &buf), 
+                deviceSampleRate: FfiConverterUInt32.read(from: &buf), 
+                firstAudioMs: FfiConverterOptionDouble.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiRecordingResult, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.filePath, into: &buf)
+        FfiConverterDouble.write(value.durationMs, into: &buf)
+        FfiConverterUInt64.write(value.fileSizeBytes, into: &buf)
+        FfiConverterUInt32.write(value.deviceSampleRate, into: &buf)
+        FfiConverterOptionDouble.write(value.firstAudioMs, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiRecordingResult_lift(_ buf: RustBuffer) throws -> FfiRecordingResult {
+    return try FfiConverterTypeFfiRecordingResult.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiRecordingResult_lower(_ value: FfiRecordingResult) -> RustBuffer {
+    return FfiConverterTypeFfiRecordingResult.lower(value)
 }
 
 
@@ -1797,6 +2190,175 @@ extension PipelineState: Equatable, Hashable {}
 
 
 /**
+ * Callback interface for audio capture events.
+ */
+public protocol FfiAudioCaptureListener: AnyObject, Sendable {
+    
+    func onAudioLevel(level: Float) 
+    
+    func onRecordingReady() 
+    
+    func onError(message: String) 
+    
+}
+
+
+// Put the implementation in a struct so we don't pollute the top-level namespace
+fileprivate struct UniffiCallbackInterfaceFfiAudioCaptureListener {
+
+    // Create the VTable using a series of closures.
+    // Swift automatically converts these into C callback functions.
+    //
+    // This creates 1-element array, since this seems to be the only way to construct a const
+    // pointer that we can pass to the Rust code.
+    static let vtable: [UniffiVTableCallbackInterfaceFfiAudioCaptureListener] = [UniffiVTableCallbackInterfaceFfiAudioCaptureListener(
+        onAudioLevel: { (
+            uniffiHandle: UInt64,
+            level: Float,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceFfiAudioCaptureListener.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.onAudioLevel(
+                     level: try FfiConverterFloat.lift(level)
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        onRecordingReady: { (
+            uniffiHandle: UInt64,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceFfiAudioCaptureListener.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.onRecordingReady(
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        onError: { (
+            uniffiHandle: UInt64,
+            message: RustBuffer,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceFfiAudioCaptureListener.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.onError(
+                     message: try FfiConverterString.lift(message)
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        uniffiFree: { (uniffiHandle: UInt64) -> () in
+            let result = try? FfiConverterCallbackInterfaceFfiAudioCaptureListener.handleMap.remove(handle: uniffiHandle)
+            if result == nil {
+                print("Uniffi callback interface FfiAudioCaptureListener: handle missing in uniffiFree")
+            }
+        }
+    )]
+}
+
+private func uniffiCallbackInitFfiAudioCaptureListener() {
+    uniffi_wrenflow_ffi_fn_init_callback_vtable_ffiaudiocapturelistener(UniffiCallbackInterfaceFfiAudioCaptureListener.vtable)
+}
+
+// FfiConverter protocol for callback interfaces
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterCallbackInterfaceFfiAudioCaptureListener {
+    fileprivate static let handleMap = UniffiHandleMap<FfiAudioCaptureListener>()
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+extension FfiConverterCallbackInterfaceFfiAudioCaptureListener : FfiConverter {
+    typealias SwiftType = FfiAudioCaptureListener
+    typealias FfiType = UInt64
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func lift(_ handle: UInt64) throws -> SwiftType {
+        try handleMap.get(handle: handle)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func lower(_ v: SwiftType) -> UInt64 {
+        return handleMap.insert(obj: v)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func write(_ v: SwiftType, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(v))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterCallbackInterfaceFfiAudioCaptureListener_lift(_ handle: UInt64) throws -> FfiAudioCaptureListener {
+    return try FfiConverterCallbackInterfaceFfiAudioCaptureListener.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterCallbackInterfaceFfiAudioCaptureListener_lower(_ v: FfiAudioCaptureListener) -> UInt64 {
+    return FfiConverterCallbackInterfaceFfiAudioCaptureListener.lower(v)
+}
+
+
+
+
+/**
  * Callback for model download/load progress.
  */
 public protocol FfiModelProgressListener: AnyObject, Sendable {
@@ -2137,6 +2699,30 @@ public func FfiConverterCallbackInterfaceFfiPipelineListener_lower(_ v: FfiPipel
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionDouble: FfiConverterRustBuffer {
+    typealias SwiftType = Double?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterDouble.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterDouble.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionString: FfiConverterRustBuffer {
     typealias SwiftType = String?
 
@@ -2158,6 +2744,55 @@ fileprivate struct FfiConverterOptionString: FfiConverterRustBuffer {
     }
 }
 
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeFfiRecordingResult: FfiConverterRustBuffer {
+    typealias SwiftType = FfiRecordingResult?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeFfiRecordingResult.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeFfiRecordingResult.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeFfiAudioDeviceInfo: FfiConverterRustBuffer {
+    typealias SwiftType = [FfiAudioDeviceInfo]
+
+    public static func write(_ value: [FfiAudioDeviceInfo], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFfiAudioDeviceInfo.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FfiAudioDeviceInfo] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FfiAudioDeviceInfo]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFfiAudioDeviceInfo.read(from: &buf))
+        }
+        return seq
+    }
+}
+
 private enum InitializationResult {
     case ok
     case contractVersionMismatch
@@ -2172,6 +2807,21 @@ private let initializationResult: InitializationResult = {
     let scaffolding_contract_version = ffi_wrenflow_ffi_uniffi_contract_version()
     if bindings_contract_version != scaffolding_contract_version {
         return InitializationResult.contractVersionMismatch
+    }
+    if (uniffi_wrenflow_ffi_checksum_method_ffiaudiocapture_cleanup() != 37380) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_wrenflow_ffi_checksum_method_ffiaudiocapture_list_input_devices() != 52499) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_wrenflow_ffi_checksum_method_ffiaudiocapture_start_recording() != 3507) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_wrenflow_ffi_checksum_method_ffiaudiocapture_stop_recording() != 49539) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_wrenflow_ffi_checksum_method_ffiaudiocapture_warm_up() != 9572) {
+        return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_wrenflow_ffi_checksum_method_ffilocaltranscriptionengine_cancel_download() != 33571) {
         return InitializationResult.apiChecksumMismatch
@@ -2227,10 +2877,22 @@ private let initializationResult: InitializationResult = {
     if (uniffi_wrenflow_ffi_checksum_method_ffipipelineengine_update_config() != 37693) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_wrenflow_ffi_checksum_constructor_ffiaudiocapture_new() != 12338) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_wrenflow_ffi_checksum_constructor_ffilocaltranscriptionengine_new() != 1490) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_wrenflow_ffi_checksum_constructor_ffipipelineengine_new() != 3148) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_wrenflow_ffi_checksum_method_ffiaudiocapturelistener_on_audio_level() != 32606) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_wrenflow_ffi_checksum_method_ffiaudiocapturelistener_on_recording_ready() != 50891) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_wrenflow_ffi_checksum_method_ffiaudiocapturelistener_on_error() != 10973) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_wrenflow_ffi_checksum_method_ffimodelprogresslistener_on_state_changed() != 101) {
@@ -2252,6 +2914,7 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
 
+    uniffiCallbackInitFfiAudioCaptureListener()
     uniffiCallbackInitFfiModelProgressListener()
     uniffiCallbackInitFfiPipelineListener()
     return InitializationResult.ok

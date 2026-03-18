@@ -10,6 +10,9 @@ pub use wrenflow_domain::post_processing;
 pub use wrenflow_domain::models;
 pub use wrenflow_domain::model_management;
 
+// Audio capture (cpal-based)
+pub mod audio_capture;
+
 // Infrastructure modules (IO, network, persistence)
 pub mod http_client;
 pub mod model_downloader;

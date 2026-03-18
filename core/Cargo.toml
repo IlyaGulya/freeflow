@@ -23,3 +23,4 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 thiserror = "2"
 log = "0.4"
 parakeet-rs = "0.3"
+cpal = "0.15"
