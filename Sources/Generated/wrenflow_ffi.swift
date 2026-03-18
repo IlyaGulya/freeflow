@@ -406,6 +406,22 @@ private let UNIFFI_CALLBACK_UNEXPECTED_ERROR: Int32 = 2
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterUInt16: FfiConverterPrimitive {
+    typealias FfiType = UInt16
+    typealias SwiftType = UInt16
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> UInt16 {
+        return try lift(readInt(&buf))
+    }
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterUInt32: FfiConverterPrimitive {
     typealias FfiType = UInt32
     typealias SwiftType = UInt32
@@ -725,6 +741,222 @@ public func FfiConverterTypeFfiAudioCapture_lift(_ pointer: UnsafeMutableRawPoin
 #endif
 public func FfiConverterTypeFfiAudioCapture_lower(_ value: FfiAudioCapture) -> UnsafeMutableRawPointer {
     return FfiConverterTypeFfiAudioCapture.lower(value)
+}
+
+
+
+
+
+
+public protocol FfiHistoryStoreProtocol: AnyObject, Sendable {
+    
+    /**
+     * Delete all entries. Returns audio file names that were stored.
+     */
+    func clearAll() throws  -> [String]
+    
+    /**
+     * Return the number of entries in the store.
+     */
+    func count() throws  -> UInt32
+    
+    /**
+     * Delete a single entry by id. Returns the audio file name if one was stored.
+     */
+    func delete(id: String) throws  -> String?
+    
+    /**
+     * Insert a history entry.
+     */
+    func insert(entry: HistoryEntry) throws 
+    
+    /**
+     * Load all history entries, newest first.
+     */
+    func loadAll() throws  -> [HistoryEntry]
+    
+    /**
+     * Trim to at most `max_count` entries (keeping newest). Returns removed audio file names.
+     */
+    func trim(maxCount: UInt32) throws  -> [String]
+    
+}
+open class FfiHistoryStore: FfiHistoryStoreProtocol, @unchecked Sendable {
+    fileprivate let pointer: UnsafeMutableRawPointer!
+
+    /// Used to instantiate a [FFIObject] without an actual pointer, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoPointer {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
+        self.pointer = pointer
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noPointer: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing [Pointer] the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noPointer: NoPointer) {
+        self.pointer = nil
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiClonePointer() -> UnsafeMutableRawPointer {
+        return try! rustCall { uniffi_wrenflow_ffi_fn_clone_ffihistorystore(self.pointer, $0) }
+    }
+    /**
+     * Open (or create) a history store at the given database path.
+     */
+public convenience init(dbPath: String)throws  {
+    let pointer =
+        try rustCallWithError(FfiConverterTypeFfiHistoryError_lift) {
+    uniffi_wrenflow_ffi_fn_constructor_ffihistorystore_new(
+        FfiConverterString.lower(dbPath),$0
+    )
+}
+    self.init(unsafeFromRawPointer: pointer)
+}
+
+    deinit {
+        guard let pointer = pointer else {
+            return
+        }
+
+        try! rustCall { uniffi_wrenflow_ffi_fn_free_ffihistorystore(pointer, $0) }
+    }
+
+    
+
+    
+    /**
+     * Delete all entries. Returns audio file names that were stored.
+     */
+open func clearAll()throws  -> [String]  {
+    return try  FfiConverterSequenceString.lift(try rustCallWithError(FfiConverterTypeFfiHistoryError_lift) {
+    uniffi_wrenflow_ffi_fn_method_ffihistorystore_clear_all(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
+    /**
+     * Return the number of entries in the store.
+     */
+open func count()throws  -> UInt32  {
+    return try  FfiConverterUInt32.lift(try rustCallWithError(FfiConverterTypeFfiHistoryError_lift) {
+    uniffi_wrenflow_ffi_fn_method_ffihistorystore_count(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
+    /**
+     * Delete a single entry by id. Returns the audio file name if one was stored.
+     */
+open func delete(id: String)throws  -> String?  {
+    return try  FfiConverterOptionString.lift(try rustCallWithError(FfiConverterTypeFfiHistoryError_lift) {
+    uniffi_wrenflow_ffi_fn_method_ffihistorystore_delete(self.uniffiClonePointer(),
+        FfiConverterString.lower(id),$0
+    )
+})
+}
+    
+    /**
+     * Insert a history entry.
+     */
+open func insert(entry: HistoryEntry)throws   {try rustCallWithError(FfiConverterTypeFfiHistoryError_lift) {
+    uniffi_wrenflow_ffi_fn_method_ffihistorystore_insert(self.uniffiClonePointer(),
+        FfiConverterTypeHistoryEntry_lower(entry),$0
+    )
+}
+}
+    
+    /**
+     * Load all history entries, newest first.
+     */
+open func loadAll()throws  -> [HistoryEntry]  {
+    return try  FfiConverterSequenceTypeHistoryEntry.lift(try rustCallWithError(FfiConverterTypeFfiHistoryError_lift) {
+    uniffi_wrenflow_ffi_fn_method_ffihistorystore_load_all(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
+    /**
+     * Trim to at most `max_count` entries (keeping newest). Returns removed audio file names.
+     */
+open func trim(maxCount: UInt32)throws  -> [String]  {
+    return try  FfiConverterSequenceString.lift(try rustCallWithError(FfiConverterTypeFfiHistoryError_lift) {
+    uniffi_wrenflow_ffi_fn_method_ffihistorystore_trim(self.uniffiClonePointer(),
+        FfiConverterUInt32.lower(maxCount),$0
+    )
+})
+}
+    
+
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiHistoryStore: FfiConverter {
+
+    typealias FfiType = UnsafeMutableRawPointer
+    typealias SwiftType = FfiHistoryStore
+
+    public static func lift(_ pointer: UnsafeMutableRawPointer) throws -> FfiHistoryStore {
+        return FfiHistoryStore(unsafeFromRawPointer: pointer)
+    }
+
+    public static func lower(_ value: FfiHistoryStore) -> UnsafeMutableRawPointer {
+        return value.uniffiClonePointer()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiHistoryStore {
+        let v: UInt64 = try readInt(&buf)
+        // The Rust code won't compile if a pointer won't fit in a UInt64.
+        // We have to go via `UInt` because that's the thing that's the size of a pointer.
+        let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: v))
+        if (ptr == nil) {
+            throw UniffiInternalError.unexpectedNullPointer
+        }
+        return try lift(ptr!)
+    }
+
+    public static func write(_ value: FfiHistoryStore, into buf: inout [UInt8]) {
+        // This fiddling is because `Int` is the thing that's the same size as a pointer.
+        // The Rust code won't compile if a pointer won't fit in a `UInt64`.
+        writeInt(&buf, UInt64(bitPattern: Int64(Int(bitPattern: lower(value)))))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiHistoryStore_lift(_ pointer: UnsafeMutableRawPointer) throws -> FfiHistoryStore {
+    return try FfiConverterTypeFfiHistoryStore.lift(pointer)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiHistoryStore_lower(_ value: FfiHistoryStore) -> UnsafeMutableRawPointer {
+    return FfiConverterTypeFfiHistoryStore.lower(value)
 }
 
 
@@ -1386,6 +1618,76 @@ public func FfiConverterTypeFfiAudioDeviceInfo_lower(_ value: FfiAudioDeviceInfo
 }
 
 
+public struct FfiGroqModel {
+    public var id: String
+    public var ownedBy: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: String, ownedBy: String) {
+        self.id = id
+        self.ownedBy = ownedBy
+    }
+}
+
+#if compiler(>=6)
+extension FfiGroqModel: Sendable {}
+#endif
+
+
+extension FfiGroqModel: Equatable, Hashable {
+    public static func ==(lhs: FfiGroqModel, rhs: FfiGroqModel) -> Bool {
+        if lhs.id != rhs.id {
+            return false
+        }
+        if lhs.ownedBy != rhs.ownedBy {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(ownedBy)
+    }
+}
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiGroqModel: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiGroqModel {
+        return
+            try FfiGroqModel(
+                id: FfiConverterString.read(from: &buf), 
+                ownedBy: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiGroqModel, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.id, into: &buf)
+        FfiConverterString.write(value.ownedBy, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiGroqModel_lift(_ buf: RustBuffer) throws -> FfiGroqModel {
+    return try FfiConverterTypeFfiGroqModel.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiGroqModel_lower(_ value: FfiGroqModel) -> RustBuffer {
+    return FfiConverterTypeFfiGroqModel.lower(value)
+}
+
+
 /**
  * FFI mirror of `wrenflow_domain::post_processing::PostProcessingResult`.
  */
@@ -1975,6 +2277,174 @@ public func FfiConverterTypeTranscriptionResult_lift(_ buf: RustBuffer) throws -
 public func FfiConverterTypeTranscriptionResult_lower(_ value: TranscriptionResult) -> RustBuffer {
     return FfiConverterTypeTranscriptionResult.lower(value)
 }
+
+
+public enum FfiHistoryError: Swift.Error {
+
+    
+    
+    case StoreError(message: String
+    )
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiHistoryError: FfiConverterRustBuffer {
+    typealias SwiftType = FfiHistoryError
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiHistoryError {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+
+        
+
+        
+        case 1: return .StoreError(
+            message: try FfiConverterString.read(from: &buf)
+            )
+
+         default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: FfiHistoryError, into buf: inout [UInt8]) {
+        switch value {
+
+        
+
+        
+        
+        case let .StoreError(message):
+            writeInt(&buf, Int32(1))
+            FfiConverterString.write(message, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiHistoryError_lift(_ buf: RustBuffer) throws -> FfiHistoryError {
+    return try FfiConverterTypeFfiHistoryError.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiHistoryError_lower(_ value: FfiHistoryError) -> RustBuffer {
+    return FfiConverterTypeFfiHistoryError.lower(value)
+}
+
+
+extension FfiHistoryError: Equatable, Hashable {}
+
+
+
+
+extension FfiHistoryError: Foundation.LocalizedError {
+    public var errorDescription: String? {
+        String(reflecting: self)
+    }
+}
+
+
+
+
+
+public enum FfiModelsError: Swift.Error {
+
+    
+    
+    case EmptyApiKey
+    case Http(message: String
+    )
+    case ApiError(statusCode: UInt16
+    )
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiModelsError: FfiConverterRustBuffer {
+    typealias SwiftType = FfiModelsError
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiModelsError {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+
+        
+
+        
+        case 1: return .EmptyApiKey
+        case 2: return .Http(
+            message: try FfiConverterString.read(from: &buf)
+            )
+        case 3: return .ApiError(
+            statusCode: try FfiConverterUInt16.read(from: &buf)
+            )
+
+         default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: FfiModelsError, into buf: inout [UInt8]) {
+        switch value {
+
+        
+
+        
+        
+        case .EmptyApiKey:
+            writeInt(&buf, Int32(1))
+        
+        
+        case let .Http(message):
+            writeInt(&buf, Int32(2))
+            FfiConverterString.write(message, into: &buf)
+            
+        
+        case let .ApiError(statusCode):
+            writeInt(&buf, Int32(3))
+            FfiConverterUInt16.write(statusCode, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiModelsError_lift(_ buf: RustBuffer) throws -> FfiModelsError {
+    return try FfiConverterTypeFfiModelsError.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiModelsError_lower(_ value: FfiModelsError) -> RustBuffer {
+    return FfiConverterTypeFfiModelsError.lower(value)
+}
+
+
+extension FfiModelsError: Equatable, Hashable {}
+
+
+
+
+extension FfiModelsError: Foundation.LocalizedError {
+    public var errorDescription: String? {
+        String(reflecting: self)
+    }
+}
+
+
+
 
 
 /**
@@ -2931,6 +3401,31 @@ fileprivate struct FfiConverterOptionTypeFfiRecordingResult: FfiConverterRustBuf
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceString: FfiConverterRustBuffer {
+    typealias SwiftType = [String]
+
+    public static func write(_ value: [String], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterString.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [String] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [String]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterString.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeFfiAudioDeviceInfo: FfiConverterRustBuffer {
     typealias SwiftType = [FfiAudioDeviceInfo]
 
@@ -2951,6 +3446,70 @@ fileprivate struct FfiConverterSequenceTypeFfiAudioDeviceInfo: FfiConverterRustB
         }
         return seq
     }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeFfiGroqModel: FfiConverterRustBuffer {
+    typealias SwiftType = [FfiGroqModel]
+
+    public static func write(_ value: [FfiGroqModel], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFfiGroqModel.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FfiGroqModel] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FfiGroqModel]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFfiGroqModel.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeHistoryEntry: FfiConverterRustBuffer {
+    typealias SwiftType = [HistoryEntry]
+
+    public static func write(_ value: [HistoryEntry], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeHistoryEntry.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [HistoryEntry] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [HistoryEntry]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeHistoryEntry.read(from: &buf))
+        }
+        return seq
+    }
+}
+/**
+ * Fetch available Groq models via the Rust HTTP stack.
+ *
+ * This is a blocking call that spawns a tokio runtime internally.
+ * Call from a background thread.
+ */
+public func ffiFetchGroqModels(apiKey: String, baseUrl: String)throws  -> [FfiGroqModel]  {
+    return try  FfiConverterSequenceTypeFfiGroqModel.lift(try rustCallWithError(FfiConverterTypeFfiModelsError_lift) {
+    uniffi_wrenflow_ffi_fn_func_ffi_fetch_groq_models(
+        FfiConverterString.lower(apiKey),
+        FfiConverterString.lower(baseUrl),$0
+    )
+})
 }
 /**
  * Run LLM post-processing on a transcript via the Rust HTTP stack.
@@ -2987,6 +3546,9 @@ private let initializationResult: InitializationResult = {
     if bindings_contract_version != scaffolding_contract_version {
         return InitializationResult.contractVersionMismatch
     }
+    if (uniffi_wrenflow_ffi_checksum_func_ffi_fetch_groq_models() != 10730) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_wrenflow_ffi_checksum_func_ffi_post_process() != 41075) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -3003,6 +3565,24 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_wrenflow_ffi_checksum_method_ffiaudiocapture_warm_up() != 9572) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_wrenflow_ffi_checksum_method_ffihistorystore_clear_all() != 10238) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_wrenflow_ffi_checksum_method_ffihistorystore_count() != 27519) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_wrenflow_ffi_checksum_method_ffihistorystore_delete() != 13885) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_wrenflow_ffi_checksum_method_ffihistorystore_insert() != 30198) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_wrenflow_ffi_checksum_method_ffihistorystore_load_all() != 44819) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_wrenflow_ffi_checksum_method_ffihistorystore_trim() != 36015) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_wrenflow_ffi_checksum_method_ffilocaltranscriptionengine_cancel_download() != 33571) {
@@ -3060,6 +3640,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_wrenflow_ffi_checksum_constructor_ffiaudiocapture_new() != 12338) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_wrenflow_ffi_checksum_constructor_ffihistorystore_new() != 2236) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_wrenflow_ffi_checksum_constructor_ffilocaltranscriptionengine_new() != 1490) {
