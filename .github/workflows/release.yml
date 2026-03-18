@@ -29,23 +29,19 @@ jobs:
         uses: dtolnay/rust-toolchain@7b1c307e0dcbda6122208f10795a713336a9b35a # stable
         with:
           toolchain: stable
-          targets: aarch64-apple-darwin,x86_64-apple-darwin
+          targets: aarch64-apple-darwin
 
       - name: Cache Rust
         uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
         with:
           workspaces: core -> target
 
-      - name: Build Rust FFI (release, universal)
+      - name: Build Rust FFI (release, arm64)
         run: |
           cd core
           cargo build -p wrenflow-ffi --release --target aarch64-apple-darwin
-          cargo build -p wrenflow-ffi --release --target x86_64-apple-darwin
           mkdir -p target/release
-          lipo -create \
-            target/aarch64-apple-darwin/release/libwrenflow_ffi.a \
-            target/x86_64-apple-darwin/release/libwrenflow_ffi.a \
-            -output target/release/libwrenflow_ffi.a
+          cp target/aarch64-apple-darwin/release/libwrenflow_ffi.a target/release/
 
       - name: Set version info
         id: version
