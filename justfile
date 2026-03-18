@@ -189,3 +189,22 @@ clean:
 check:
     cd {{rust_dir}} && cargo check
     swift build -c debug
+
+# ── Logging ──
+
+# Show recent app logs (last N minutes, default 5)
+logs minutes="5":
+    /usr/bin/log show --predicate 'process CONTAINS "Wrenflow"' --last "{{minutes}}m" --style compact
+
+# Show only errors/crashes (last N minutes, default 30)
+crashes minutes="30":
+    /usr/bin/log show --predicate 'process CONTAINS "Wrenflow"' --last "{{minutes}}m" --style compact | grep -iE "fatal|crash|signal|abort|exception|EXC_|SIGABRT|SIGSEGV|FAULT|Terminating|uncaught"
+
+# Stream live logs (Ctrl+C to stop)
+logs-live:
+    /usr/bin/log stream --predicate 'process CONTAINS "Wrenflow"' --style compact
+
+# Run app from terminal with stdout visible (for print() debugging)
+run-debug: build
+    -pkill -f "{{app_name}}" 2>/dev/null; sleep 0.3
+    "{{app_bundle}}/Contents/MacOS/{{app_name}}"

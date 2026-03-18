@@ -86,7 +86,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         window.title = ""
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
-        window.isMovableByWindowBackground = true
         window.contentView = hostingView
         window.isReleasedWhenClosed = false
         window.backgroundColor = NSColor(white: 0.96, alpha: 1.0)

@@ -159,7 +159,15 @@ final class AppState: ObservableObject, @unchecked Sendable {
     var statusText: String { pipelineState.statusText }
 
     @Published var lastTranscript: String = ""
-    @Published var errorMessage: String?
+    @Published var errorMessage: String? {
+        didSet {
+            if let msg = errorMessage, !msg.isEmpty {
+                showErrorToast(msg)
+            }
+        }
+    }
+    private var errorToastWindow: NSWindow?
+    private var errorToastDismissTask: Task<Void, Never>?
     /// Single source of truth for all permission states.
     let permissionState = PermissionStateObservable()
 
@@ -175,6 +183,48 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
     private var permissionWindow: NSWindow?
     private var permissionAutoCloseCancellable: AnyCancellable?
+
+    private func showErrorToast(_ message: String) {
+        // Dismiss existing
+        errorToastDismissTask?.cancel()
+        errorToastWindow?.close()
+
+        let view = ErrorToastView(message: message, onDismiss: { [weak self] in
+            self?.dismissErrorToast()
+        })
+        .wrenflowPanel(width: 380)
+
+        let panel = NSPanel.wrenflowPanel(content: view)
+        // Position near top center of screen
+        if let screen = NSScreen.main {
+            let x = screen.frame.midX - 190
+            let y = screen.frame.maxY - 120
+            panel.setFrameOrigin(NSPoint(x: x, y: y))
+        }
+        panel.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        errorToastWindow = panel
+
+        // Auto-dismiss after 6 seconds
+        errorToastDismissTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 6_000_000_000)
+            guard !Task.isCancelled else { return }
+            dismissErrorToast()
+        }
+    }
+
+    private func dismissErrorToast() {
+        guard let window = errorToastWindow else { return }
+        NSAnimationContext.runAnimationGroup({ ctx in
+            ctx.duration = 0.25
+            window.animator().alphaValue = 0
+        }, completionHandler: { [weak self] in
+            self?.errorToastWindow?.close()
+            self?.errorToastWindow = nil
+        })
+        errorToastDismissTask?.cancel()
+        errorToastDismissTask = nil
+    }
 
     private func showPermissionWindow(kinds: [PermissionKind]) {
         // Don't open a second one

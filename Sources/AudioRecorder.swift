@@ -426,23 +426,21 @@ class AudioRecorder: NSObject, ObservableObject {
 
         storedInputFormat = inputFormat
 
-        // Always install tap — needed for engine to pull from input node.
-        // In AUHAL mode the tap is a no-op; ring buffer gets HAL-rate data via render notify.
-        // In fallback mode the tap does all the work (convert + write).
-        engine.prepare()
-
         // Use the input node's audio unit for render notify — it fires at HAL rate
         if let audioUnit = engine.inputNode.audioUnit {
             usingAUHAL = setupAUHALCallback(audioUnit: audioUnit)
         }
 
+        // Install tap BEFORE prepare() — format: nil lets AVAudioEngine match hardware rate
+        // (passing explicit format can crash if it doesn't match inputHWFormat.sampleRate)
         if usingAUHAL {
-            // No-op tap — just keeps the engine pulling audio
-            inputNode.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { _, _ in }
+            inputNode.installTap(onBus: 0, bufferSize: 4096, format: nil) { _, _ in }
         } else {
             os_log(.info, log: recordingLog, "AUHAL render notify failed — falling back to installTap")
             installTapFallback(inputNode: inputNode, inputFormat: inputFormat)
         }
+
+        engine.prepare()
 
         return engine
     }
@@ -484,7 +482,8 @@ class AudioRecorder: NSObject, ObservableObject {
     }
 
     private func installTapFallback(inputNode: AVAudioNode, inputFormat: AVAudioFormat) {
-        inputNode.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { [weak self] buffer, _ in
+        // Use nil format to match hardware rate and avoid sampleRate mismatch crash
+        inputNode.installTap(onBus: 0, bufferSize: 4096, format: nil) { [weak self] buffer, _ in
             guard let self else { return }
 
             if !self.firstTapCallbackFired {

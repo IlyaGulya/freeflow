@@ -79,6 +79,23 @@ struct SettingsView: View {
                     .buttonStyle(.plain)
                 }
                 Spacer()
+
+                // Branding at bottom of sidebar
+                VStack(spacing: 4) {
+                    Image(nsImage: NSApp.applicationIconImage)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 28, height: 28)
+                        .opacity(0.5)
+                    Text("Wrenflow")
+                        .font(WrenflowStyle.body(11))
+                        .foregroundColor(WrenflowStyle.textTertiary)
+                    Text("v\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0")")
+                        .font(WrenflowStyle.mono(10))
+                        .foregroundColor(WrenflowStyle.textTertiary.opacity(0.6))
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.bottom, 8)
             }
             .padding(8)
             .frame(width: 150)
@@ -113,107 +130,12 @@ struct SettingsView: View {
 
 struct GeneralSettingsView: View {
     @EnvironmentObject var appState: AppState
-    @Environment(\.openURL) private var openURL
-    @State private var customVocabularyInput: String = ""
     @State private var micPermissionGranted = false
-    @StateObject private var githubCache = GitHubMetadataCache.shared
     @ObservedObject private var updateManager = UpdateManager.shared
-    private let freeflowRepoURL = URL(string: "https://github.com/IlyaGulya/wrenflow")!
 
     var body: some View {
         ScrollView {
             VStack(spacing: 12) {
-                // App branding header
-                VStack(spacing: 8) {
-                    Image(nsImage: NSApp.applicationIconImage)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(width: 48, height: 48)
-                        .opacity(0.8)
-
-                    Text("Wrenflow")
-                        .font(WrenflowStyle.title(18))
-                        .foregroundColor(WrenflowStyle.text)
-
-                    Text("v\(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0")")
-                        .font(WrenflowStyle.mono(12))
-                        .foregroundColor(WrenflowStyle.textTertiary)
-
-                    // GitHub card
-                    VStack(spacing: 8) {
-                        HStack(spacing: 6) {
-                            AsyncImage(url: URL(string: "https://avatars.githubusercontent.com/u/668727")) { phase in
-                                switch phase {
-                                case .success(let image):
-                                    image.resizable().aspectRatio(contentMode: .fill)
-                                default:
-                                    WrenflowStyle.trackBg
-                                }
-                            }
-                            .frame(width: 18, height: 18)
-                            .clipShape(Circle())
-
-                            Button {
-                                openURL(freeflowRepoURL)
-                            } label: {
-                                Text("IlyaGulya/wrenflow")
-                                    .font(WrenflowStyle.mono(12))
-                                    .foregroundColor(WrenflowStyle.text.opacity(0.6))
-                            }
-                            .buttonStyle(.plain)
-
-                            Spacer()
-
-                            HStack(spacing: 3) {
-                                Image(systemName: "star.fill")
-                                    .foregroundColor(Color(red: 0.85, green: 0.65, blue: 0.1))
-                                    .font(.system(size: 9))
-                                if let count = githubCache.starCount {
-                                    Text("\(count.formatted())")
-                                        .font(WrenflowStyle.mono(11))
-                                        .foregroundColor(WrenflowStyle.textSecondary)
-                                } else {
-                                    Text("···")
-                                        .font(WrenflowStyle.mono(11))
-                                        .foregroundColor(WrenflowStyle.textTertiary)
-                                }
-                            }
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 3)
-                            .background(Capsule().fill(WrenflowStyle.text.opacity(0.05)))
-
-                            Button {
-                                openURL(freeflowRepoURL)
-                            } label: {
-                                HStack(spacing: 3) {
-                                    Image(systemName: "star")
-                                        .font(.system(size: 10))
-                                    Text("Star")
-                                        .font(WrenflowStyle.body(11))
-                                }
-                                .foregroundColor(WrenflowStyle.textSecondary)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 3)
-                                .background(Capsule().fill(WrenflowStyle.text.opacity(0.05)))
-                            }
-                            .buttonStyle(.plain)
-                        }
-
-                    }
-                    .padding(10)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8)
-                            .fill(WrenflowStyle.surface)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .stroke(WrenflowStyle.border, lineWidth: 1)
-                            )
-                    )
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.top, 2)
-                .padding(.bottom, 2)
-
                 SettingsCard("Startup") {
                     startupSection
                 }
@@ -226,9 +148,6 @@ struct GeneralSettingsView: View {
                 SettingsCard("Microphone") {
                     microphoneSection
                 }
-                SettingsCard("Custom Vocabulary") {
-                    vocabularySection
-                }
                 SettingsCard("Permissions") {
                     permissionsSection
                 }
@@ -240,10 +159,8 @@ struct GeneralSettingsView: View {
         }
         .background(WrenflowStyle.bg)
         .onAppear {
-            customVocabularyInput = appState.customVocabulary
             checkMicPermission()
             appState.refreshLaunchAtLoginStatus()
-            Task { await githubCache.fetchIfNeeded() }
         }
     }
 
@@ -520,30 +437,7 @@ struct GeneralSettingsView: View {
         }
     }
 
-    // MARK: Custom Vocabulary
 
-    private var vocabularySection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Words and phrases to preserve during post-processing.")
-                .font(WrenflowStyle.caption(11))
-                .foregroundColor(WrenflowStyle.textTertiary)
-
-            TextEditor(text: $customVocabularyInput)
-                .font(WrenflowStyle.mono(12))
-                .frame(minHeight: 60, maxHeight: 120)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6)
-                        .stroke(WrenflowStyle.border, lineWidth: 1)
-                )
-                .onChange(of: customVocabularyInput) { newValue in
-                    appState.customVocabulary = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
-                }
-
-            Text("Separate entries with commas, new lines, or semicolons.")
-                .font(WrenflowStyle.caption(11))
-                .foregroundColor(WrenflowStyle.textTertiary)
-        }
-    }
 
     // MARK: Permissions
 
@@ -551,6 +445,7 @@ struct GeneralSettingsView: View {
         VStack(alignment: .leading, spacing: 6) {
             permissionRow(
                 title: "Microphone",
+                description: "Record audio for transcription",
                 granted: micPermissionGranted,
                 action: {
                     AVCaptureDevice.requestAccess(for: .audio) { granted in
@@ -563,6 +458,7 @@ struct GeneralSettingsView: View {
 
             permissionRow(
                 title: "Accessibility",
+                description: "Paste transcribed text into apps",
                 granted: appState.hasAccessibility,
                 action: {
                     appState.openAccessibilitySettings()
@@ -571,6 +467,7 @@ struct GeneralSettingsView: View {
 
             permissionRow(
                 title: "Screen Recording",
+                description: "Capture context for smarter AI cleanup",
                 granted: appState.hasScreenRecordingPermission,
                 action: {
                     appState.requestScreenCapturePermission()
@@ -579,11 +476,18 @@ struct GeneralSettingsView: View {
         }
     }
 
-    private func permissionRow(title: String, granted: Bool, action: @escaping () -> Void) -> some View {
+    private func permissionRow(title: String, description: String = "", granted: Bool, action: @escaping () -> Void) -> some View {
         HStack {
-            Text(title)
-                .font(WrenflowStyle.body(12))
-                .foregroundColor(WrenflowStyle.text)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(WrenflowStyle.body(12))
+                    .foregroundColor(WrenflowStyle.text)
+                if !description.isEmpty {
+                    Text(description)
+                        .font(WrenflowStyle.caption(11))
+                        .foregroundColor(WrenflowStyle.textTertiary)
+                }
+            }
             Spacer()
             if granted {
                 HStack(spacing: 4) {
@@ -791,6 +695,7 @@ struct AICleanupSettingsView: View {
     @State private var availableModels: [GroqModel] = []
     @State private var isFetchingModels = false
     @State private var modelFetchFailed = false
+    @State private var customVocabularyInput: String = ""
     @State private var customSystemPromptInput: String = ""
     @State private var customContextPromptInput: String = ""
     @State private var showDefaultSystemPrompt = false
@@ -826,6 +731,9 @@ struct AICleanupSettingsView: View {
                 SettingsCard("System Prompt") {
                     systemPromptSection
                 }
+                SettingsCard("Custom Vocabulary") {
+                    vocabularySection
+                }
                 SettingsCard("Context Prompt") {
                     contextPromptSection
                 }
@@ -835,6 +743,7 @@ struct AICleanupSettingsView: View {
         .background(WrenflowStyle.bg)
         .onAppear {
             apiKeyInput = appState.apiKey
+            customVocabularyInput = appState.customVocabulary
             apiBaseURLInput = appState.apiBaseURL
             customSystemPromptInput = appState.customSystemPrompt.isEmpty
                 ? PostProcessingService.defaultSystemPrompt
@@ -1026,6 +935,31 @@ struct AICleanupSettingsView: View {
                     availableModels = models
                 }
             }
+        }
+    }
+
+    // MARK: Custom Vocabulary
+
+    private var vocabularySection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Words and phrases to preserve during post-processing.")
+                .font(WrenflowStyle.caption(11))
+                .foregroundColor(WrenflowStyle.textTertiary)
+
+            TextEditor(text: $customVocabularyInput)
+                .font(WrenflowStyle.mono(12))
+                .frame(minHeight: 60, maxHeight: 120)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(WrenflowStyle.border, lineWidth: 1)
+                )
+                .onChange(of: customVocabularyInput) { newValue in
+                    appState.customVocabulary = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+
+            Text("Separate entries with commas, new lines, or semicolons.")
+                .font(WrenflowStyle.caption(11))
+                .foregroundColor(WrenflowStyle.textTertiary)
         }
     }
 
