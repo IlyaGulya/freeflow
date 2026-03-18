@@ -416,12 +416,26 @@ class AudioRecorder: NSObject, ObservableObject {
         }
 
         let inputNode = engine.inputNode
-        let inputFormat = inputNode.outputFormat(forBus: 0)
-        guard inputFormat.sampleRate > 0 else {
-            throw AudioRecorderError.invalidInputFormat("Invalid sample rate: \(inputFormat.sampleRate)")
-        }
-        guard inputFormat.channelCount > 0 else {
-            throw AudioRecorderError.invalidInputFormat("No input channels available")
+
+        // Get the actual hardware input format — NOT outputFormat which may differ
+        let hwFormat = inputNode.inputFormat(forBus: 0)
+        let inputFormat: AVAudioFormat
+        if hwFormat.sampleRate > 0 && hwFormat.channelCount > 0 {
+            inputFormat = hwFormat
+            os_log(.info, log: recordingLog, "Using HW input format: %{public}@ ch, %.0f Hz",
+                   String(hwFormat.channelCount), hwFormat.sampleRate)
+        } else {
+            // Fallback to output format if HW format unavailable
+            let outFormat = inputNode.outputFormat(forBus: 0)
+            guard outFormat.sampleRate > 0 else {
+                throw AudioRecorderError.invalidInputFormat("Invalid sample rate: \(outFormat.sampleRate)")
+            }
+            guard outFormat.channelCount > 0 else {
+                throw AudioRecorderError.invalidInputFormat("No input channels available")
+            }
+            inputFormat = outFormat
+            os_log(.info, log: recordingLog, "Using output format (HW unavailable): %{public}@ ch, %.0f Hz",
+                   String(outFormat.channelCount), outFormat.sampleRate)
         }
 
         storedInputFormat = inputFormat
@@ -431,10 +445,9 @@ class AudioRecorder: NSObject, ObservableObject {
             usingAUHAL = setupAUHALCallback(audioUnit: audioUnit)
         }
 
-        // Install tap BEFORE prepare() — format: nil lets AVAudioEngine match hardware rate
-        // (passing explicit format can crash if it doesn't match inputHWFormat.sampleRate)
+        // Install tap with the matching hardware format to avoid format mismatch crash
         if usingAUHAL {
-            inputNode.installTap(onBus: 0, bufferSize: 4096, format: nil) { _, _ in }
+            inputNode.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { _, _ in }
         } else {
             os_log(.info, log: recordingLog, "AUHAL render notify failed — falling back to installTap")
             installTapFallback(inputNode: inputNode, inputFormat: inputFormat)
@@ -482,8 +495,7 @@ class AudioRecorder: NSObject, ObservableObject {
     }
 
     private func installTapFallback(inputNode: AVAudioNode, inputFormat: AVAudioFormat) {
-        // Use nil format to match hardware rate and avoid sampleRate mismatch crash
-        inputNode.installTap(onBus: 0, bufferSize: 4096, format: nil) { [weak self] buffer, _ in
+        inputNode.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { [weak self] buffer, _ in
             guard let self else { return }
 
             if !self.firstTapCallbackFired {

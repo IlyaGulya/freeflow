@@ -159,15 +159,53 @@ final class AppState: ObservableObject, @unchecked Sendable {
     var statusText: String { pipelineState.statusText }
 
     @Published var lastTranscript: String = ""
-    @Published var errorMessage: String? {
-        didSet {
-            if let msg = errorMessage, !msg.isEmpty {
-                showErrorToast(msg)
+    enum AppError {
+        case audio(String)
+        case transcription(String)
+        case postProcessing(String)
+        case permission(String)
+        case general(String)
+
+        var message: String {
+            switch self {
+            case .audio(let m), .transcription(let m), .postProcessing(let m),
+                 .permission(let m), .general(let m):
+                return m
+            }
+        }
+
+        var suggestedAction: ErrorToastView.ErrorToastAction? {
+            switch self {
+            case .audio: return .openSettings(tab: "general")
+            case .permission: return .openSettings(tab: "general")
+            case .postProcessing: return .openSettings(tab: "aiCleanup")
+            case .transcription: return .openSettings(tab: "models")
+            case .general: return nil
             }
         }
     }
+
+    @Published var errorMessage: String? {
+        didSet {
+            // Legacy: for code that still sets errorMessage as String
+            if let msg = errorMessage, !msg.isEmpty, currentError == nil {
+                showError(.general(msg))
+            }
+        }
+    }
+    private(set) var currentError: AppError?
     private var errorToastWindow: NSWindow?
     private var errorToastDismissTask: Task<Void, Never>?
+
+    func showError(_ error: AppError) {
+        currentError = error
+        showErrorToast(error)
+        // Set errorMessage without triggering didSet loop
+        let msg = error.message
+        if errorMessage != msg {
+            errorMessage = msg
+        }
+    }
     /// Single source of truth for all permission states.
     let permissionState = PermissionStateObservable()
 
@@ -184,15 +222,19 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private var permissionWindow: NSWindow?
     private var permissionAutoCloseCancellable: AnyCancellable?
 
-    private func showErrorToast(_ message: String) {
+    private func showErrorToast(_ error: AppError) {
         // Dismiss existing
         errorToastDismissTask?.cancel()
         errorToastWindow?.close()
 
-        let view = ErrorToastView(message: message, onDismiss: { [weak self] in
-            self?.dismissErrorToast()
-        })
-        .wrenflowPanel(width: 380)
+        let view = ErrorToastView(
+            message: error.message,
+            action: error.suggestedAction,
+            onDismiss: { [weak self] in
+                self?.dismissErrorToast()
+            }
+        )
+        .wrenflowPanel(width: 400)
 
         let panel = NSPanel.wrenflowPanel(content: view)
         // Position near top center of screen
@@ -214,6 +256,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     private func dismissErrorToast() {
+        currentError = nil
         guard let window = errorToastWindow else { return }
         NSAnimationContext.runAnimationGroup({ ctx in
             ctx.duration = 0.25
@@ -907,7 +950,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 }
             } catch {
                 DispatchQueue.main.async {
-                    self.transition(to: .error(message: self.formattedRecordingStartError(error)))
+                    let msg = self.formattedRecordingStartError(error)
+                    self.showError(.audio(msg))
+                    self.transition(to: .error(message: msg))
                 }
             }
         }
@@ -940,7 +985,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 }
             } catch {
                 DispatchQueue.main.async {
-                    self.rustPipelineBridge?.onPipelineError(message: self.formattedRecordingStartError(error))
+                    let msg = self.formattedRecordingStartError(error)
+                    self.showError(.audio(msg))
+                    self.rustPipelineBridge?.onPipelineError(message: msg)
                 }
             }
         }
@@ -966,7 +1013,9 @@ final class AppState: ObservableObject, @unchecked Sendable {
                 }
             } catch {
                 await MainActor.run {
-                    bridge.onPipelineError(message: "Transcription failed: \(error.localizedDescription)")
+                    let msg = "Transcription failed: \(error.localizedDescription)"
+                    self.showError(.transcription(msg))
+                    bridge.onPipelineError(message: msg)
                 }
             }
         }
