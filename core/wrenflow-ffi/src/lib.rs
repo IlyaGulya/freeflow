@@ -109,6 +109,28 @@ impl From<wrenflow_core::history::HistoryEntry> for HistoryEntry {
     }
 }
 
+impl From<HistoryEntry> for wrenflow_core::history::HistoryEntry {
+    fn from(e: HistoryEntry) -> wrenflow_core::history::HistoryEntry {
+        wrenflow_core::history::HistoryEntry {
+            id: e.id,
+            timestamp: e.timestamp,
+            raw_transcript: e.raw_transcript,
+            post_processed_transcript: e.post_processed_transcript,
+            post_processing_prompt: e.post_processing_prompt,
+            post_processing_reasoning: e.post_processing_reasoning,
+            context_summary: e.context_summary,
+            context_prompt: e.context_prompt,
+            context_screenshot_data_url: e.context_screenshot_data_url,
+            context_screenshot_status: e.context_screenshot_status,
+            post_processing_status: e.post_processing_status,
+            debug_status: e.debug_status,
+            custom_vocabulary: e.custom_vocabulary,
+            audio_file_name: e.audio_file_name,
+            metrics_json: e.metrics_json,
+        }
+    }
+}
+
 impl From<TranscriptionResult> for core::TranscriptionResult {
     fn from(r: TranscriptionResult) -> Self {
         Self { raw_transcript: r.raw_transcript, duration_ms: r.duration_ms, provider: r.provider }
@@ -598,4 +620,72 @@ pub fn ffi_fetch_groq_models(api_key: String, base_url: String) -> Result<Vec<Ff
 
         Ok(models.into_iter().map(FfiGroqModel::from).collect())
     })
+}
+
+// ---------------------------------------------------------------------------
+// History Store FFI
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, thiserror::Error, uniffi::Error)]
+pub enum FfiHistoryError {
+    #[error("{message}")]
+    StoreError { message: String },
+}
+
+impl From<wrenflow_core::HistoryError> for FfiHistoryError {
+    fn from(e: wrenflow_core::HistoryError) -> Self {
+        Self::StoreError { message: e.to_string() }
+    }
+}
+
+#[derive(uniffi::Object)]
+pub struct FfiHistoryStore {
+    inner: Mutex<wrenflow_core::HistoryStore>,
+}
+
+#[uniffi::export]
+impl FfiHistoryStore {
+    /// Open (or create) a history store at the given database path.
+    #[uniffi::constructor]
+    pub fn new(db_path: String) -> Result<Self, FfiHistoryError> {
+        let store = wrenflow_core::HistoryStore::open(std::path::Path::new(&db_path))?;
+        Ok(Self { inner: Mutex::new(store) })
+    }
+
+    /// Insert a history entry.
+    pub fn insert(&self, entry: HistoryEntry) -> Result<(), FfiHistoryError> {
+        let domain_entry: wrenflow_core::history::HistoryEntry = entry.into();
+        self.inner.lock().unwrap().insert(&domain_entry)?;
+        Ok(())
+    }
+
+    /// Load all history entries, newest first.
+    pub fn load_all(&self) -> Result<Vec<HistoryEntry>, FfiHistoryError> {
+        let entries = self.inner.lock().unwrap().load_all()?;
+        Ok(entries.into_iter().map(HistoryEntry::from).collect())
+    }
+
+    /// Delete a single entry by id. Returns the audio file name if one was stored.
+    pub fn delete(&self, id: String) -> Result<Option<String>, FfiHistoryError> {
+        let audio = self.inner.lock().unwrap().delete(&id)?;
+        Ok(audio)
+    }
+
+    /// Delete all entries. Returns audio file names that were stored.
+    pub fn clear_all(&self) -> Result<Vec<String>, FfiHistoryError> {
+        let files = self.inner.lock().unwrap().clear_all()?;
+        Ok(files)
+    }
+
+    /// Trim to at most `max_count` entries (keeping newest). Returns removed audio file names.
+    pub fn trim(&self, max_count: u32) -> Result<Vec<String>, FfiHistoryError> {
+        let files = self.inner.lock().unwrap().trim(max_count as usize)?;
+        Ok(files)
+    }
+
+    /// Return the number of entries in the store.
+    pub fn count(&self) -> Result<u32, FfiHistoryError> {
+        let count = self.inner.lock().unwrap().count()?;
+        Ok(count as u32)
+    }
 }
