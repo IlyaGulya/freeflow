@@ -466,3 +466,69 @@ impl FfiAudioCapture {
         self.inner.lock().unwrap().cleanup();
     }
 }
+
+// ---------------------------------------------------------------------------
+// Post-processing FFI (standalone function)
+// ---------------------------------------------------------------------------
+
+/// FFI mirror of `wrenflow_domain::post_processing::PostProcessingResult`.
+#[derive(Debug, Clone, uniffi::Record)]
+pub struct FfiPostProcessingOutput {
+    pub transcript: String,
+    pub prompt: String,
+    pub reasoning: String,
+}
+
+/// Error type for post-processing FFI calls.
+#[derive(Debug, thiserror::Error, uniffi::Error)]
+pub enum FfiPostProcessingError {
+    #[error("{message}")]
+    PostProcessingFailed { message: String },
+}
+
+/// Run LLM post-processing on a transcript via the Rust HTTP stack.
+///
+/// This is a **blocking** call — invoke from a background thread (Swift `Task`).
+/// Returns the cleaned transcript, the prompt used, and LLM reasoning.
+#[uniffi::export]
+pub fn ffi_post_process(
+    api_key: String,
+    model: String,
+    transcript: String,
+    context_summary: String,
+    custom_vocab: String,
+    custom_system_prompt: String,
+    base_url: String,
+) -> Result<FfiPostProcessingOutput, FfiPostProcessingError> {
+    let rt = tokio::runtime::Runtime::new()
+        .map_err(|e| FfiPostProcessingError::PostProcessingFailed {
+            message: format!("Failed to create tokio runtime: {e}"),
+        })?;
+
+    let client = wrenflow_core::http_client::build_client()
+        .map_err(|e| FfiPostProcessingError::PostProcessingFailed {
+            message: format!("Failed to build HTTP client: {e}"),
+        })?;
+
+    let result = rt.block_on(wrenflow_core::post_processing_infra::post_process(
+        &client,
+        &api_key,
+        &transcript,
+        &context_summary,
+        &model,
+        &custom_vocab,
+        &custom_system_prompt,
+        &base_url,
+    ));
+
+    match result {
+        Ok(r) => Ok(FfiPostProcessingOutput {
+            transcript: r.transcript,
+            prompt: r.prompt,
+            reasoning: r.reasoning,
+        }),
+        Err(e) => Err(FfiPostProcessingError::PostProcessingFailed {
+            message: e.to_string(),
+        }),
+    }
+}

@@ -521,6 +521,11 @@ void uniffi_wrenflow_ffi_fn_init_callback_vtable_ffimodelprogresslistener(const 
 void uniffi_wrenflow_ffi_fn_init_callback_vtable_ffipipelinelistener(const UniffiVTableCallbackInterfaceFfiPipelineListener* _Nonnull vtable
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_WRENFLOW_FFI_FN_FUNC_FFI_POST_PROCESS
+#define UNIFFI_FFIDEF_UNIFFI_WRENFLOW_FFI_FN_FUNC_FFI_POST_PROCESS
+RustBuffer uniffi_wrenflow_ffi_fn_func_ffi_post_process(RustBuffer api_key, RustBuffer model, RustBuffer transcript, RustBuffer context_summary, RustBuffer custom_vocab, RustBuffer custom_system_prompt, RustBuffer base_url, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_FFI_WRENFLOW_FFI_RUSTBUFFER_ALLOC
 #define UNIFFI_FFIDEF_FFI_WRENFLOW_FFI_RUSTBUFFER_ALLOC
 RustBuffer ffi_wrenflow_ffi_rustbuffer_alloc(uint64_t size, RustCallStatus *_Nonnull out_status
@@ -799,6 +804,12 @@ void ffi_wrenflow_ffi_rust_future_free_void(uint64_t handle
 #ifndef UNIFFI_FFIDEF_FFI_WRENFLOW_FFI_RUST_FUTURE_COMPLETE_VOID
 #define UNIFFI_FFIDEF_FFI_WRENFLOW_FFI_RUST_FUTURE_COMPLETE_VOID
 void ffi_wrenflow_ffi_rust_future_complete_void(uint64_t handle, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_WRENFLOW_FFI_CHECKSUM_FUNC_FFI_POST_PROCESS
+#define UNIFFI_FFIDEF_UNIFFI_WRENFLOW_FFI_CHECKSUM_FUNC_FFI_POST_PROCESS
+uint16_t uniffi_wrenflow_ffi_checksum_func_ffi_post_process(void
+    
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_WRENFLOW_FFI_CHECKSUM_METHOD_FFIAUDIOCAPTURE_CLEANUP

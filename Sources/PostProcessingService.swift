@@ -1,5 +1,8 @@
 import Foundation
 import os.log
+#if canImport(wrenflow_ffiFFI)
+import wrenflow_ffiFFI
+#endif
 
 private let ppLog = OSLog(subsystem: "me.gulya.wrenflow", category: "PostProcessing")
 
@@ -75,6 +78,69 @@ If the input is empty or only noise, respond: {"text": "", "reasoning": "explana
         context: AppContext,
         customVocabulary: String,
         customSystemPrompt: String = ""
+    ) async throws -> SwiftPostProcessingResult {
+        #if canImport(wrenflow_ffiFFI)
+        return try await postProcessViaRust(
+            transcript: transcript,
+            contextSummary: context.contextSummary,
+            customVocabulary: customVocabulary,
+            customSystemPrompt: customSystemPrompt
+        )
+        #else
+        return try await postProcessViaSwift(
+            transcript: transcript,
+            context: context,
+            customVocabulary: customVocabulary,
+            customSystemPrompt: customSystemPrompt
+        )
+        #endif
+    }
+
+    #if canImport(wrenflow_ffiFFI)
+    /// Post-process via the Rust FFI (reqwest HTTP stack).
+    /// The Rust function is blocking, so we dispatch it off the main actor.
+    private func postProcessViaRust(
+        transcript: String,
+        contextSummary: String,
+        customVocabulary: String,
+        customSystemPrompt: String
+    ) async throws -> SwiftPostProcessingResult {
+        os_log(.info, log: ppLog, "postProcessViaRust() — using Rust FFI path")
+        let apiKey = self.apiKey
+        let model = self.model
+        let baseURL = self.baseURL
+
+        let result: SwiftPostProcessingResult = try await Task.detached {
+            do {
+                let ffiResult = try ffiPostProcess(
+                    apiKey: apiKey,
+                    model: model,
+                    transcript: transcript,
+                    contextSummary: contextSummary,
+                    customVocab: customVocabulary,
+                    customSystemPrompt: customSystemPrompt,
+                    baseUrl: baseURL
+                )
+                return SwiftPostProcessingResult(
+                    transcript: ffiResult.transcript,
+                    prompt: ffiResult.prompt,
+                    reasoning: ffiResult.reasoning
+                )
+            } catch {
+                throw PostProcessingError.invalidResponse(error.localizedDescription)
+            }
+        }.value
+
+        return result
+    }
+    #endif
+
+    /// Post-process via the native Swift HTTP stack (fallback when FFI is unavailable).
+    private func postProcessViaSwift(
+        transcript: String,
+        context: AppContext,
+        customVocabulary: String,
+        customSystemPrompt: String
     ) async throws -> SwiftPostProcessingResult {
         let vocabularyTerms = mergedVocabularyTerms(rawVocabulary: customVocabulary)
 

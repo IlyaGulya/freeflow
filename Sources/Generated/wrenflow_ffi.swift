@@ -1386,6 +1386,87 @@ public func FfiConverterTypeFfiAudioDeviceInfo_lower(_ value: FfiAudioDeviceInfo
 }
 
 
+/**
+ * FFI mirror of `wrenflow_domain::post_processing::PostProcessingResult`.
+ */
+public struct FfiPostProcessingOutput {
+    public var transcript: String
+    public var prompt: String
+    public var reasoning: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(transcript: String, prompt: String, reasoning: String) {
+        self.transcript = transcript
+        self.prompt = prompt
+        self.reasoning = reasoning
+    }
+}
+
+#if compiler(>=6)
+extension FfiPostProcessingOutput: Sendable {}
+#endif
+
+
+extension FfiPostProcessingOutput: Equatable, Hashable {
+    public static func ==(lhs: FfiPostProcessingOutput, rhs: FfiPostProcessingOutput) -> Bool {
+        if lhs.transcript != rhs.transcript {
+            return false
+        }
+        if lhs.prompt != rhs.prompt {
+            return false
+        }
+        if lhs.reasoning != rhs.reasoning {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(transcript)
+        hasher.combine(prompt)
+        hasher.combine(reasoning)
+    }
+}
+
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiPostProcessingOutput: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiPostProcessingOutput {
+        return
+            try FfiPostProcessingOutput(
+                transcript: FfiConverterString.read(from: &buf), 
+                prompt: FfiConverterString.read(from: &buf), 
+                reasoning: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiPostProcessingOutput, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.transcript, into: &buf)
+        FfiConverterString.write(value.prompt, into: &buf)
+        FfiConverterString.write(value.reasoning, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiPostProcessingOutput_lift(_ buf: RustBuffer) throws -> FfiPostProcessingOutput {
+    return try FfiConverterTypeFfiPostProcessingOutput.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiPostProcessingOutput_lower(_ value: FfiPostProcessingOutput) -> RustBuffer {
+    return FfiConverterTypeFfiPostProcessingOutput.lower(value)
+}
+
+
 public struct FfiRecordingResult {
     public var filePath: String
     public var durationMs: Double
@@ -1894,6 +1975,85 @@ public func FfiConverterTypeTranscriptionResult_lift(_ buf: RustBuffer) throws -
 public func FfiConverterTypeTranscriptionResult_lower(_ value: TranscriptionResult) -> RustBuffer {
     return FfiConverterTypeTranscriptionResult.lower(value)
 }
+
+
+/**
+ * Error type for post-processing FFI calls.
+ */
+public enum FfiPostProcessingError: Swift.Error {
+
+    
+    
+    case PostProcessingFailed(message: String
+    )
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiPostProcessingError: FfiConverterRustBuffer {
+    typealias SwiftType = FfiPostProcessingError
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiPostProcessingError {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+
+        
+
+        
+        case 1: return .PostProcessingFailed(
+            message: try FfiConverterString.read(from: &buf)
+            )
+
+         default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: FfiPostProcessingError, into buf: inout [UInt8]) {
+        switch value {
+
+        
+
+        
+        
+        case let .PostProcessingFailed(message):
+            writeInt(&buf, Int32(1))
+            FfiConverterString.write(message, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiPostProcessingError_lift(_ buf: RustBuffer) throws -> FfiPostProcessingError {
+    return try FfiConverterTypeFfiPostProcessingError.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiPostProcessingError_lower(_ value: FfiPostProcessingError) -> RustBuffer {
+    return FfiConverterTypeFfiPostProcessingError.lower(value)
+}
+
+
+extension FfiPostProcessingError: Equatable, Hashable {}
+
+
+
+
+extension FfiPostProcessingError: Foundation.LocalizedError {
+    public var errorDescription: String? {
+        String(reflecting: self)
+    }
+}
+
+
+
 
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
@@ -2792,6 +2952,25 @@ fileprivate struct FfiConverterSequenceTypeFfiAudioDeviceInfo: FfiConverterRustB
         return seq
     }
 }
+/**
+ * Run LLM post-processing on a transcript via the Rust HTTP stack.
+ *
+ * This is a **blocking** call — invoke from a background thread (Swift `Task`).
+ * Returns the cleaned transcript, the prompt used, and LLM reasoning.
+ */
+public func ffiPostProcess(apiKey: String, model: String, transcript: String, contextSummary: String, customVocab: String, customSystemPrompt: String, baseUrl: String)throws  -> FfiPostProcessingOutput  {
+    return try  FfiConverterTypeFfiPostProcessingOutput_lift(try rustCallWithError(FfiConverterTypeFfiPostProcessingError_lift) {
+    uniffi_wrenflow_ffi_fn_func_ffi_post_process(
+        FfiConverterString.lower(apiKey),
+        FfiConverterString.lower(model),
+        FfiConverterString.lower(transcript),
+        FfiConverterString.lower(contextSummary),
+        FfiConverterString.lower(customVocab),
+        FfiConverterString.lower(customSystemPrompt),
+        FfiConverterString.lower(baseUrl),$0
+    )
+})
+}
 
 private enum InitializationResult {
     case ok
@@ -2807,6 +2986,9 @@ private let initializationResult: InitializationResult = {
     let scaffolding_contract_version = ffi_wrenflow_ffi_uniffi_contract_version()
     if bindings_contract_version != scaffolding_contract_version {
         return InitializationResult.contractVersionMismatch
+    }
+    if (uniffi_wrenflow_ffi_checksum_func_ffi_post_process() != 41075) {
+        return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_wrenflow_ffi_checksum_method_ffiaudiocapture_cleanup() != 37380) {
         return InitializationResult.apiChecksumMismatch
