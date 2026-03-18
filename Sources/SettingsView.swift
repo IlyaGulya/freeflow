@@ -46,6 +46,9 @@ struct SettingsView: View {
         HStack(spacing: 0) {
             // Sidebar
             VStack(alignment: .leading, spacing: 2) {
+                // Space for traffic light buttons
+                Spacer().frame(height: 12)
+
                 ForEach(SettingsTab.allCases) { tab in
                     Button {
                         appState.selectedSettingsTab = tab
