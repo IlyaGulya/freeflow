@@ -92,13 +92,18 @@ final class LocalTranscriptionService: ObservableObject, @unchecked Sendable {
         }
         self.progressListener = listener
 
-        state = .downloading(DownloadProgressInfo())
+        let modelDir = self.modelDir
+        let needsDownload = !eng.isModelDownloaded(modelDir: modelDir)
+
+        if needsDownload {
+            state = .downloading(DownloadProgressInfo())
+        } else {
+            state = .compiling
+        }
 
         // Run on background thread (download + load are blocking)
-        let modelDir = self.modelDir
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            // Download if needed
-            if !eng.isModelDownloaded(modelDir: modelDir) {
+            if needsDownload {
                 os_log(.info, log: ltLog, "Model not found, downloading...")
                 if let error = eng.downloadModel(modelDir: modelDir, listener: listener) {
                     os_log(.error, log: ltLog, "Download failed: %{public}@", error)

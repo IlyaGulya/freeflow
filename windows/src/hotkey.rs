@@ -18,11 +18,14 @@
 //! Platform guard: the real implementation is compiled only on Windows;
 //! a no-op stub is provided for `cargo check` on other hosts.
 
+#[allow(unused_imports)]
 use anyhow::Result;
+#[allow(unused_imports)]
 use wrenflow_core::config::AppConfig;
 
 /// Events emitted by `HotkeyManager`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
 pub enum HotkeyEvent {
     Pressed,
     Released,
@@ -222,8 +225,10 @@ mod platform {
     use wrenflow_core::config::AppConfig;
     use super::HotkeyEvent;
 
+    #[allow(dead_code)]
     pub struct HotkeyManager;
 
+    #[allow(dead_code)]
     impl HotkeyManager {
         pub fn new() -> Result<Self> {
             Ok(HotkeyManager)
@@ -239,4 +244,5 @@ mod platform {
     }
 }
 
+#[allow(unused_imports)]
 pub use platform::HotkeyManager;

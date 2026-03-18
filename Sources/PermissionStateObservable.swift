@@ -96,6 +96,7 @@ final class PermissionStateObservable: ObservableObject {
     /// Start polling (call once from AppDelegate).
     func startPolling() {
         pollTimer?.invalidate()
+        print("[Permissions] polling started")
         pollTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             DispatchQueue.main.async { self?.refresh() }
         }
@@ -106,21 +107,25 @@ final class PermissionStateObservable: ObservableObject {
         pollTimer = nil
     }
 
-    /// User clicked "Grant Access".
+    /// User clicked "Grant".
     func request(_ kind: PermissionKind) {
-        states[kind] = .requesting
         performRequest(kind)
     }
 
-    /// Force a refresh from OS.
+    /// Refresh from OS.
     func refresh() {
+        var changed = false
         for kind in PermissionKind.allCases {
             let os = queryOS(kind)
             let new = mapOSStatus(os)
-            let old = states[kind]
-            // Don't overwrite .requesting while OS prompt is showing
-            if old == .requesting && new == .notGranted { continue }
-            states[kind] = new
+            if states[kind] != new {
+                states[kind] = new
+                changed = true
+            }
+        }
+        if changed {
+            print("[Permissions] changed: mic=\(states[.microphone]!) ax=\(states[.accessibility]!) sr=\(states[.screenRecording]!)")
+            objectWillChange.send()
         }
     }
 
@@ -162,21 +167,32 @@ final class PermissionStateObservable: ObservableObject {
                 DispatchQueue.main.async { self?.refresh() }
             }
         case .accessibility:
-            let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
+            temporarilyLowerFloatingPanels()
+            // Register in Accessibility list (prompt: false = no system dialog)
+            let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): false] as CFDictionary
             AXIsProcessTrustedWithOptions(opts)
-            // Also open Settings so it's in foreground
+            // Open Settings to the Accessibility pane
             if let url = kind.settingsURL {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                    NSWorkspace.shared.open(url)
-                }
+                NSWorkspace.shared.open(url)
             }
         case .screenRecording:
+            temporarilyLowerFloatingPanels()
             CGRequestScreenCaptureAccess()
             if let url = kind.settingsURL {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                     NSWorkspace.shared.open(url)
                 }
             }
+        }
+    }
+
+    /// Lower all floating panels so system dialogs appear on top.
+    /// Panels stay lowered — they'll restore when permission is granted
+    /// and the panel closes, or when user interacts with it.
+    private func temporarilyLowerFloatingPanels() {
+        let panels = NSApp.windows.compactMap { $0 as? NSPanel }.filter { $0.isFloatingPanel }
+        for panel in panels {
+            panel.level = .normal
         }
     }
 

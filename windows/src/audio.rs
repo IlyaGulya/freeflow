@@ -8,6 +8,8 @@
 //! Platform guard: the real implementation is compiled only on Windows.
 //! On other hosts a no-op stub is provided so `cargo check` succeeds.
 
+// The UnboundedSender type is re-exported for use by callers on all platforms.
+#[allow(unused_imports)]
 use tokio::sync::mpsc::UnboundedSender;
 
 // ---------------------------------------------------------------------------
@@ -160,8 +162,10 @@ mod platform {
     use anyhow::Result;
     use tokio::sync::mpsc::UnboundedSender;
 
+    #[allow(dead_code)]
     pub struct AudioCapture;
 
+    #[allow(dead_code)]
     impl AudioCapture {
         pub fn start(_tx: UnboundedSender<Vec<f32>>) -> Result<Self> {
             Ok(AudioCapture)
@@ -174,4 +178,5 @@ mod platform {
 }
 
 // Re-export the platform implementation under the module's public name.
+#[allow(unused_imports)]
 pub use platform::AudioCapture;

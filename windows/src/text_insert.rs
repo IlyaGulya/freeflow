@@ -273,8 +273,10 @@ pub mod context_capture {
 mod platform {
     use anyhow::Result;
 
+    #[allow(dead_code)]
     pub struct TextInserter;
 
+    #[allow(dead_code)]
     impl TextInserter {
         pub fn new() -> Self { TextInserter }
 
@@ -289,6 +291,7 @@ pub mod context_capture {
     use anyhow::Result;
 
     #[derive(Debug, Default)]
+    #[allow(dead_code)]
     pub struct FocusContext {
         pub window_title: String,
         pub control_name: String,
@@ -296,9 +299,11 @@ pub mod context_capture {
         pub current_value: String,
     }
 
+    #[allow(dead_code)]
     pub fn capture_focus_context() -> Result<FocusContext> {
         Ok(FocusContext::default())
     }
 }
 
+#[allow(unused_imports)]
 pub use platform::TextInserter;

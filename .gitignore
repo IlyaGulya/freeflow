@@ -19,3 +19,6 @@ DEEP_ANALYSIS.md
 FORK_ANALYSIS.md
 IMPROVEMENTS.md
 RUST_MIGRATION_PLAN.md
+*.cer
+*.p12
+*.certSigningRequest

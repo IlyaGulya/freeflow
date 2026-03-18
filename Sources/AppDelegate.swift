@@ -39,9 +39,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             // - Accessibility: polled silently (startAccessibilityPolling), shown in menu bar
             // - Screen Recording: checked when post-processing needs a screenshot
 
-            if appState.selectedTranscriptionProvider == .local
-                && !appState.localTranscriptionService.state.isReady {
-                showModelDownloadWindow()
+            // Only show download dialog if model actually needs downloading
+            if appState.selectedTranscriptionProvider == .local {
+                if case .downloading = appState.localTranscriptionService.state {
+                    showModelDownloadWindow()
+                }
             }
         }
 

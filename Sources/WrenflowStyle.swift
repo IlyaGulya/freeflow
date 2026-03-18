@@ -116,6 +116,8 @@ extension NSPanel {
         panel.contentView?.wantsLayer = true
         panel.contentView?.layer?.cornerRadius = 12
         panel.contentView?.layer?.masksToBounds = true
+        panel.contentView?.layer?.borderWidth = 0.5
+        panel.contentView?.layer?.borderColor = NSColor(white: 0.0, alpha: 0.08).cgColor
         panel.center()
         return panel
     }

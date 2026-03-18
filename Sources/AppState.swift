@@ -193,6 +193,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     }
 
     private var permissionWindow: NSWindow?
+    private var permissionAutoCloseCancellable: AnyCancellable?
 
     private func showPermissionWindow(kinds: [PermissionKind]) {
         // Don't open a second one
@@ -202,7 +203,14 @@ final class AppState: ObservableObject, @unchecked Sendable {
             return
         }
 
-        let view = PermissionGateView(kinds: kinds)
+        // Ensure polling is running
+        permissionState.startPolling()
+
+        let view = PermissionGateView(kinds: kinds, onDismiss: { [weak self] in
+                self?.permissionWindow?.close()
+                self?.permissionWindow = nil
+                self?.permissionSheetKinds = nil
+            })
             .environmentObject(permissionState)
             .wrenflowPanel(width: 380)
 
@@ -213,6 +221,32 @@ final class AppState: ObservableObject, @unchecked Sendable {
 
         permissionWindow = panel
 
+        // Auto-close when all permissions granted (with delay for success animation)
+        permissionAutoCloseCancellable = permissionState.$states
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard let self, self.permissionState.allRequiredSatisfied else { return }
+                self.permissionAutoCloseCancellable = nil
+                // Restore floating level so success animation is visible
+                if let panel = self.permissionWindow as? NSPanel {
+                    panel.level = .floating
+                    panel.makeKeyAndOrderFront(nil)
+                    NSApp.activate(ignoringOtherApps: true)
+                }
+                // Show success state briefly, then fade out
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+                    guard let window = self?.permissionWindow else { return }
+                    NSAnimationContext.runAnimationGroup({ ctx in
+                        ctx.duration = 0.3
+                        window.animator().alphaValue = 0
+                    }, completionHandler: { [weak self] in
+                        self?.permissionWindow?.close()
+                        self?.permissionWindow = nil
+                        self?.permissionSheetKinds = nil
+                    })
+                }
+            }
+
         NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification,
             object: panel,
@@ -220,6 +254,8 @@ final class AppState: ObservableObject, @unchecked Sendable {
         ) { [weak self] _ in
             self?.permissionWindow = nil
             self?.permissionSheetKinds = nil
+            self?.permissionAutoCloseCancellable = nil
+            self?.permissionState.refresh()
         }
     }
 

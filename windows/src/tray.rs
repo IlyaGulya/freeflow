@@ -16,11 +16,14 @@
 //! Platform guard: the real implementation is compiled only on Windows;
 //! a no-op stub is provided for `cargo check` on other hosts.
 
+#[allow(unused_imports)]
 use anyhow::Result;
+#[allow(unused_imports)]
 use tokio::sync::mpsc::UnboundedSender;
 
 /// Commands that the tray menu can issue to the main event loop.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
 pub enum TrayCommand {
     OpenSettings,
     Quit,
@@ -252,8 +255,10 @@ mod platform {
     use tokio::sync::mpsc::UnboundedSender;
     use super::TrayCommand;
 
+    #[allow(dead_code)]
     pub struct TrayIcon;
 
+    #[allow(dead_code)]
     impl TrayIcon {
         pub fn new(_tx: UnboundedSender<TrayCommand>) -> Result<Self> {
             Ok(TrayIcon)
@@ -265,4 +270,5 @@ mod platform {
     }
 }
 
+#[allow(unused_imports)]
 pub use platform::TrayIcon;
