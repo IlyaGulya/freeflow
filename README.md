@@ -1,5 +1,9 @@
 <p align="center">
-  <img src="Resources/logo.svg" width="128" height="128" alt="Wrenflow icon">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="Resources/logo-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="Resources/logo-light.svg">
+    <img src="Resources/logo-light.svg" width="128" height="128" alt="Wrenflow icon">
+  </picture>
 </p>
 
 <h1 align="center">Wrenflow</h1>
