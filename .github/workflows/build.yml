@@ -1,42 +1,88 @@
-name: Build macOS App
+name: Build
 
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
+  release:
+    types: [published]
+
+permissions:
+  contents: write
 
 jobs:
   build:
     runs-on: macos-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     permissions:
-      contents: read
+      contents: write
     env:
       HAS_SIGNING_CERT: ${{ secrets.DEVELOPER_ID_CERTIFICATE_BASE64 != '' }}
+      HAS_NOTARIZE: ${{ secrets.APPLE_ID != '' }}
+      IS_RELEASE: ${{ github.event_name == 'release' }}
+      IS_BETA: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      IS_PR: ${{ github.event_name == 'pull_request' }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
+          fetch-depth: 0
           persist-credentials: false
 
+      - name: Skip if release-please commit
+        if: env.IS_BETA == 'true'
+        id: skip
+        run: |
+          MSG=$(git log -1 --pretty=%s)
+          if echo "$MSG" | grep -qE '^chore\(main\): release'; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Select Xcode 16
+        if: steps.skip.outputs.skip != 'true'
         run: sudo xcode-select -s /Applications/Xcode_16.2.app/Contents/Developer
 
       - name: Install Rust toolchain
+        if: steps.skip.outputs.skip != 'true'
         uses: dtolnay/rust-toolchain@7b1c307e0dcbda6122208f10795a713336a9b35a # stable
         with:
           toolchain: stable
 
       - name: Cache Rust
+        if: steps.skip.outputs.skip != 'true'
         uses: Swatinem/rust-cache@42dc69e1aa15d09112580998cf2ef0119e2e91ae # v2
         with:
           workspaces: core -> target
 
       - name: Install build tools
-        run: brew install just
+        if: steps.skip.outputs.skip != 'true'
+        run: brew install just create-dmg fileicon
+
+      - name: Compute version info
+        if: steps.skip.outputs.skip != 'true'
+        id: version
+        run: |
+          BUILD_NUMBER=$(git rev-list --count HEAD)
+          echo "build_number=$BUILD_NUMBER" >> "$GITHUB_OUTPUT"
+
+          if [ "${{ env.IS_RELEASE }}" = "true" ]; then
+            TAG="${{ github.event.release.tag_name }}"
+          else
+            LATEST_TAG=$(git describe --tags --match 'v*' --abbrev=0 2>/dev/null || echo "v0.0.0")
+            COMMITS_SINCE=$(git rev-list "${LATEST_TAG}..HEAD" --count)
+            TAG="${LATEST_TAG}-beta.${COMMITS_SINCE}"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Inject build number into Info.plist
+        if: steps.skip.outputs.skip != 'true' && env.IS_PR != 'true'
+        run: |
+          plutil -replace CFBundleVersion -string "${{ steps.version.outputs.build_number }}" Info.plist
 
       - name: Import signing certificate
-        if: env.HAS_SIGNING_CERT == 'true'
+        if: steps.skip.outputs.skip != 'true' && env.HAS_SIGNING_CERT == 'true' && env.IS_PR != 'true'
         env:
           CERTIFICATE_BASE64: ${{ secrets.DEVELOPER_ID_CERTIFICATE_BASE64 }}
           CERTIFICATE_PASSWORD: ${{ secrets.DEVELOPER_ID_CERTIFICATE_PASSWORD }}
@@ -50,28 +96,67 @@ jobs:
           security import certificate.p12 -k build.keychain \
             -P "$CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
           security set-key-partition-list -S apple-tool:,apple:,codesign: \
-            -s -k "$KEYCHAIN_PASSWORD" build.keychain
+            -s -k "$KEYCHAIN_PASSWORD" build.keychain >/dev/null 2>&1
           security list-keychains -d user -s build.keychain login.keychain
           rm certificate.p12
           IDENTITY=$(security find-identity -v -p codesigning build.keychain | grep "Developer ID Application" | head -1 | sed 's/.*"\(.*\)".*/\1/')
           echo "WRENFLOW_CODESIGN_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
 
       - name: Fall back to ad-hoc signing
-        if: env.HAS_SIGNING_CERT != 'true'
+        if: steps.skip.outputs.skip != 'true' && (env.HAS_SIGNING_CERT != 'true' || env.IS_PR == 'true')
         run: echo "WRENFLOW_CODESIGN_IDENTITY=-" >> "$GITHUB_ENV"
 
-      - name: Build release app
-        run: just release
+      # PR: debug build only
+      - name: Build (PR check)
+        if: steps.skip.outputs.skip != 'true' && env.IS_PR == 'true'
+        run: just build
+
+      # Push to main / release: full release build + DMG
+      - name: Build release DMG
+        if: steps.skip.outputs.skip != 'true' && env.IS_PR != 'true'
+        run: just dmg
+
+      - name: Notarize DMG
+        if: steps.skip.outputs.skip != 'true' && env.IS_RELEASE == 'true' && env.HAS_NOTARIZE == 'true'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          xcrun notarytool submit build/Wrenflow.dmg \
+            --apple-id "$APPLE_ID" \
+            --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_PASSWORD" \
+            --wait --timeout 600
+          xcrun stapler staple build/Wrenflow.dmg
 
       - name: Verify codesign
+        if: steps.skip.outputs.skip != 'true' && env.IS_PR != 'true'
         run: codesign --verify --deep --strict "build/Wrenflow.app" || true
 
       - name: Clean up keychain
         if: always()
         run: security delete-keychain build.keychain 2>/dev/null || true
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      # Release: upload DMG to existing GitHub Release
+      - name: Upload DMG to release
+        if: env.IS_RELEASE == 'true'
+        run: mv build/Wrenflow.dmg Wrenflow.dmg
+      - uses: softprops/action-gh-release@c95fe1489396fe8a9eb87c0abf8aa5b2ef267fda # v2.2.1
+        if: env.IS_RELEASE == 'true'
         with:
-          name: Wrenflow
-          path: build/Wrenflow.app
+          tag_name: ${{ github.event.release.tag_name }}
+          files: Wrenflow.dmg
+
+      # Beta: create pre-release with DMG
+      - name: Create beta pre-release
+        if: steps.skip.outputs.skip != 'true' && env.IS_BETA == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          mv build/Wrenflow.dmg Wrenflow.dmg
+          gh release create "$TAG" Wrenflow.dmg \
+            --title "Wrenflow $TAG" \
+            --prerelease \
+            --notes "Beta build from \`main\`. [Latest stable release](https://github.com/${{ github.repository }}/releases/latest)."

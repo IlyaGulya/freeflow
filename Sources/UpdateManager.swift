@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import Version
 
 // MARK: - Data Models
 
@@ -115,10 +116,11 @@ final class UpdateManager: ObservableObject {
     // MARK: - Check for Updates
 
     func checkForUpdates(userInitiated: Bool) async {
-        let currentBuildTag = Bundle.main.infoDictionary?["WrenflowBuildTag"] as? String
+        let versionString = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
+        let currentVersion = Version(tolerant: versionString)
 
-        // Dev builds (no embedded tag): skip auto-checks, but allow manual checks
-        if !userInitiated && currentBuildTag == nil {
+        // Dev builds (unparseable version): skip auto-checks, allow manual
+        if !userInitiated && currentVersion == nil {
             return
         }
 
@@ -173,8 +175,14 @@ final class UpdateManager: ObservableObject {
             dateFormatter.timeStyle = .none
             let releaseDateString = dateFormatter.string(from: publishedDate)
 
-            // If this is the same build we're running, no update available
-            if let currentTag = currentBuildTag, release.tagName == currentTag {
+            // Compare versions using semver
+            let tagString = release.tagName.hasPrefix("v")
+                ? String(release.tagName.dropFirst())
+                : release.tagName
+            let releaseVersion = Version(tolerant: tagString)
+
+            // No update if current >= release (or unparseable)
+            guard let currentVersion, let releaseVersion, releaseVersion > currentVersion else {
                 updateAvailable = false
                 latestRelease = nil
                 if userInitiated { showUpToDateAlert() }
@@ -216,6 +224,7 @@ final class UpdateManager: ObservableObject {
             }
         }
     }
+
 
     // MARK: - Alerts
 

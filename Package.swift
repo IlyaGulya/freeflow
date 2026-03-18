@@ -7,7 +7,9 @@ let packageDir = URL(fileURLWithPath: #filePath).deletingLastPathComponent().pat
 let package = Package(
     name: "Wrenflow",
     platforms: [.macOS(.v14)],
-    dependencies: [],
+    dependencies: [
+        .package(url: "https://github.com/mxcl/Version.git", from: "2.0.0"),
+    ],
     targets: [
         .systemLibrary(
             name: "wrenflow_ffiFFI",
@@ -17,6 +19,7 @@ let package = Package(
             name: "Wrenflow",
             dependencies: [
                 "wrenflow_ffiFFI",
+                .product(name: "Version", package: "Version"),
             ],
             path: "Sources",
             linkerSettings: [
@@ -29,6 +32,13 @@ let package = Package(
         .executableTarget(
             name: "WrenflowCLI",
             path: "CLI"
+        ),
+        .testTarget(
+            name: "WrenflowTests",
+            dependencies: [
+                .product(name: "Version", package: "Version"),
+            ],
+            path: "Tests"
         ),
     ]
 )
