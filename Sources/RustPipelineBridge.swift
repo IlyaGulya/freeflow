@@ -106,12 +106,12 @@ final class RustPipelineBridge {
     private let dismissOverlayDelay: TimeInterval = 0.7
     private let dismissResetDelay: TimeInterval = 3.0
 
-    init(appState: AppState, overlayManager: RecordingOverlayManager) {
+    init(appState: AppState, overlayManager: RecordingOverlayManager, historyStore: FfiHistoryStore? = nil) {
         let listener = SwiftPipelineListener(appState: appState, overlayManager: overlayManager)
         self.listener = listener
 
         let config = RustPipelineBridge.makeConfig(from: appState)
-        self.engine = FfiPipelineEngine(config: config, listener: listener)
+        self.engine = FfiPipelineEngine(config: config, listener: listener, historyStore: historyStore)
 
         os_log(.info, log: bridgeLog, "RustPipelineBridge initialized")
     }
@@ -419,10 +419,8 @@ extension AppState {
         errorMessage = message
     }
 
-    /// Called when Rust adds a history entry.
+    /// Called when Rust adds a history entry (already persisted by Rust).
     func handleRustHistoryEntry(_ entry: HistoryEntry) {
-        guard let item = entry.toPipelineHistoryItem() else { return }
-
         lastRawTranscript = entry.rawTranscript
         lastPostProcessedTranscript = entry.postProcessedTranscript
         lastPostProcessingPrompt = entry.postProcessingPrompt ?? ""
@@ -431,8 +429,8 @@ extension AppState {
         lastPostProcessingStatus = entry.postProcessingStatus
         debugStatusMessage = entry.debugStatus
 
-        // Persist to SQLite via AppState
-        savePipelineEntry(item)
+        // Rust already persisted — just reload from store to update UI
+        pipelineHistory = pipelineHistoryStore.loadAllHistory()
     }
 
     // MARK: - Private helpers for Rust bridge

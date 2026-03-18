@@ -397,7 +397,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
     private var capturedContext: AppContext?
     private var hasShownScreenshotPermissionAlert = false
     private var audioDeviceListenerBlock: AudioObjectPropertyListenerBlock?
-    private let pipelineHistoryStore = PipelineHistoryStore()
+    let pipelineHistoryStore = PipelineHistoryStore()
 
     init() {
         let hasCompletedSetup = UserDefaults.standard.bool(forKey: "hasCompletedSetup")
@@ -465,7 +465,7 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
 
         // Initialize Rust pipeline bridge
-        self.rustPipelineBridge = RustPipelineBridge(appState: self, overlayManager: overlayManager)
+        self.rustPipelineBridge = RustPipelineBridge(appState: self, overlayManager: overlayManager, historyStore: pipelineHistoryStore.store)
     }
 
     func warmUpAfterSetup() {
@@ -980,55 +980,6 @@ final class AppState: ObservableObject, @unchecked Sendable {
         }
     }
 
-    func savePipelineEntry(_ item: PipelineHistoryItem) {
-        do {
-            let removedAudioFileNames = try pipelineHistoryStore.append(item, maxCount: maxPipelineHistoryCount)
-            for audioFileName in removedAudioFileNames {
-                Self.deleteAudioFile(audioFileName)
-            }
-            pipelineHistory = pipelineHistoryStore.loadAllHistory()
-        } catch {
-            errorMessage = "Unable to save run history entry: \(error.localizedDescription)"
-        }
-    }
-
-    private func recordPipelineHistoryEntry(
-        rawTranscript: String,
-        postProcessedTranscript: String,
-        postProcessingPrompt: String,
-        postProcessingReasoning: String = "",
-        context: AppContext,
-        processingStatus: String,
-        audioFileName: String? = nil,
-        metrics: PipelineMetrics
-    ) {
-        let newEntry = PipelineHistoryItem(
-            timestamp: Date(),
-            rawTranscript: rawTranscript,
-            postProcessedTranscript: postProcessedTranscript,
-            postProcessingPrompt: postProcessingPrompt,
-            postProcessingReasoning: postProcessingReasoning,
-            contextSummary: context.contextSummary,
-            contextPrompt: context.contextPrompt,
-            contextScreenshotDataURL: context.screenshotDataURL,
-            contextScreenshotStatus: context.screenshotError
-                ?? "available (\(context.screenshotMimeType ?? "image"))",
-            postProcessingStatus: processingStatus,
-            debugStatus: debugStatusMessage,
-            customVocabulary: customVocabulary,
-            audioFileName: audioFileName,
-            metrics: metrics
-        )
-        do {
-            let removedAudioFileNames = try pipelineHistoryStore.append(newEntry, maxCount: maxPipelineHistoryCount)
-            for audioFileName in removedAudioFileNames {
-                Self.deleteAudioFile(audioFileName)
-            }
-            pipelineHistory = pipelineHistoryStore.loadAllHistory()
-        } catch {
-            errorMessage = "Unable to save run history entry: \(error.localizedDescription)"
-        }
-    }
 
     private func startContextCapture() {
         contextCaptureTask?.cancel()

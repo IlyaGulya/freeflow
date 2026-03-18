@@ -1,7 +1,7 @@
 import Foundation
 
 final class PipelineHistoryStore {
-    private let store: FfiHistoryStore?
+    let store: FfiHistoryStore?
 
     init() {
         let appName = Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "Wrenflow"
@@ -35,12 +35,6 @@ final class PipelineHistoryStore {
         }
     }
 
-    func append(_ item: PipelineHistoryItem, maxCount: Int) throws -> [String] {
-        guard let store else { return [] }
-        try store.insert(entry: item.toHistoryEntry())
-        return try trim(to: maxCount)
-    }
-
     func delete(id: UUID) throws -> String? {
         guard let store else { return nil }
         return try store.delete(id: id.uuidString.uppercased())
@@ -57,39 +51,5 @@ final class PipelineHistoryStore {
             return try clearAll()
         }
         return try store.trim(maxCount: UInt32(maxCount))
-    }
-}
-
-// MARK: - PipelineHistoryItem -> HistoryEntry conversion
-
-private extension PipelineHistoryItem {
-    func toHistoryEntry() -> HistoryEntry {
-        let metricsJson: String
-        if metrics.isEmpty {
-            metricsJson = "{}"
-        } else if let data = try? JSONEncoder().encode(metrics),
-                  let json = String(data: data, encoding: .utf8) {
-            metricsJson = json
-        } else {
-            metricsJson = "{}"
-        }
-
-        return HistoryEntry(
-            id: id.uuidString.uppercased(),
-            timestamp: timestamp.timeIntervalSince1970,
-            rawTranscript: rawTranscript,
-            postProcessedTranscript: postProcessedTranscript,
-            postProcessingPrompt: postProcessingPrompt,
-            postProcessingReasoning: postProcessingReasoning,
-            contextSummary: contextSummary,
-            contextPrompt: contextPrompt,
-            contextScreenshotDataUrl: contextScreenshotDataURL,
-            contextScreenshotStatus: contextScreenshotStatus,
-            postProcessingStatus: postProcessingStatus,
-            debugStatus: debugStatus,
-            customVocabulary: customVocabulary,
-            audioFileName: audioFileName,
-            metricsJson: metricsJson
-        )
     }
 }

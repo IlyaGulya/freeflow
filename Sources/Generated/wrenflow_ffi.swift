@@ -1261,12 +1261,13 @@ open class FfiPipelineEngine: FfiPipelineEngineProtocol, @unchecked Sendable {
     public func uniffiClonePointer() -> UnsafeMutableRawPointer {
         return try! rustCall { uniffi_wrenflow_ffi_fn_clone_ffipipelineengine(self.pointer, $0) }
     }
-public convenience init(config: AppConfig, listener: FfiPipelineListener) {
+public convenience init(config: AppConfig, listener: FfiPipelineListener, historyStore: FfiHistoryStore?) {
     let pointer =
         try! rustCall() {
     uniffi_wrenflow_ffi_fn_constructor_ffipipelineengine_new(
         FfiConverterTypeAppConfig_lower(config),
-        FfiConverterCallbackInterfaceFfiPipelineListener_lower(listener),$0
+        FfiConverterCallbackInterfaceFfiPipelineListener_lower(listener),
+        FfiConverterOptionTypeFfiHistoryStore.lower(historyStore),$0
     )
 }
     self.init(unsafeFromRawPointer: pointer)
@@ -3377,6 +3378,30 @@ fileprivate struct FfiConverterOptionString: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeFfiHistoryStore: FfiConverterRustBuffer {
+    typealias SwiftType = FfiHistoryStore?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeFfiHistoryStore.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeFfiHistoryStore.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeFfiRecordingResult: FfiConverterRustBuffer {
     typealias SwiftType = FfiRecordingResult?
 
@@ -3648,7 +3673,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_wrenflow_ffi_checksum_constructor_ffilocaltranscriptionengine_new() != 1490) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_wrenflow_ffi_checksum_constructor_ffipipelineengine_new() != 3148) {
+    if (uniffi_wrenflow_ffi_checksum_constructor_ffipipelineengine_new() != 22149) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_wrenflow_ffi_checksum_method_ffiaudiocapturelistener_on_audio_level() != 32606) {

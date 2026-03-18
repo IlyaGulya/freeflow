@@ -2,7 +2,7 @@
 //! All types that cross the FFI boundary are defined here with UniFFI derives,
 //! and converted to/from wrenflow-core types internally.
 
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use wrenflow_core::pipeline as core;
 
 uniffi::setup_scaffolding!();
@@ -162,18 +162,28 @@ pub trait FfiPipelineListener: Send + Sync {
     fn on_history_entry_added(&self, entry: HistoryEntry);
 }
 
-/// Adapter: bridges FfiPipelineListener → core::PipelineListener
-struct ListenerBridge(Box<dyn FfiPipelineListener>);
+/// Adapter: bridges FfiPipelineListener → core::PipelineListener.
+/// Optionally persists history entries to a HistoryStore before forwarding to Swift.
+struct ListenerBridge {
+    listener: Box<dyn FfiPipelineListener>,
+    history_store: Option<Arc<Mutex<wrenflow_core::HistoryStore>>>,
+}
 
 impl core::PipelineListener for ListenerBridge {
     fn on_state_changed(&self, old: core::PipelineState, new: core::PipelineState) {
-        self.0.on_state_changed(old.into(), new.into());
+        self.listener.on_state_changed(old.into(), new.into());
     }
-    fn on_paste_text(&self, text: String) { self.0.on_paste_text(text); }
-    fn on_play_sound(&self, sound: core::PipelineSound) { self.0.on_play_sound(sound.into()); }
-    fn on_error(&self, message: String) { self.0.on_error(message); }
+    fn on_paste_text(&self, text: String) { self.listener.on_paste_text(text); }
+    fn on_play_sound(&self, sound: core::PipelineSound) { self.listener.on_play_sound(sound.into()); }
+    fn on_error(&self, message: String) { self.listener.on_error(message); }
     fn on_history_entry_added(&self, entry: wrenflow_core::history::HistoryEntry) {
-        self.0.on_history_entry_added(entry.into());
+        // Persist in Rust before forwarding to Swift
+        if let Some(store) = &self.history_store {
+            if let Err(e) = store.lock().unwrap().insert(&entry) {
+                log::error!("Failed to persist history entry: {e}");
+            }
+        }
+        self.listener.on_history_entry_added(entry.into());
     }
 }
 
@@ -190,10 +200,11 @@ pub struct FfiPipelineEngine {
 #[uniffi::export]
 impl FfiPipelineEngine {
     #[uniffi::constructor]
-    pub fn new(config: AppConfig, listener: Box<dyn FfiPipelineListener>) -> Self {
+    pub fn new(config: AppConfig, listener: Box<dyn FfiPipelineListener>, history_store: Option<Arc<FfiHistoryStore>>) -> Self {
+        let store = history_store.map(|s| s.inner.clone());
         Self {
             inner: Mutex::new(core::PipelineEngine::new(config.into())),
-            listener: ListenerBridge(listener),
+            listener: ListenerBridge { listener, history_store: store },
         }
     }
 
@@ -640,7 +651,7 @@ impl From<wrenflow_core::HistoryError> for FfiHistoryError {
 
 #[derive(uniffi::Object)]
 pub struct FfiHistoryStore {
-    inner: Mutex<wrenflow_core::HistoryStore>,
+    inner: Arc<Mutex<wrenflow_core::HistoryStore>>,
 }
 
 #[uniffi::export]
@@ -649,7 +660,7 @@ impl FfiHistoryStore {
     #[uniffi::constructor]
     pub fn new(db_path: String) -> Result<Self, FfiHistoryError> {
         let store = wrenflow_core::HistoryStore::open(std::path::Path::new(&db_path))?;
-        Ok(Self { inner: Mutex::new(store) })
+        Ok(Self { inner: Arc::new(Mutex::new(store)) })
     }
 
     /// Insert a history entry.

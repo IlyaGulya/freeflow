@@ -493,7 +493,7 @@ void uniffi_wrenflow_ffi_fn_free_ffipipelineengine(void*_Nonnull ptr, RustCallSt
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_WRENFLOW_FFI_FN_CONSTRUCTOR_FFIPIPELINEENGINE_NEW
 #define UNIFFI_FFIDEF_UNIFFI_WRENFLOW_FFI_FN_CONSTRUCTOR_FFIPIPELINEENGINE_NEW
-void*_Nonnull uniffi_wrenflow_ffi_fn_constructor_ffipipelineengine_new(RustBuffer config, uint64_t listener, RustCallStatus *_Nonnull out_status
+void*_Nonnull uniffi_wrenflow_ffi_fn_constructor_ffipipelineengine_new(RustBuffer config, uint64_t listener, RustBuffer history_store, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_WRENFLOW_FFI_FN_METHOD_FFIPIPELINEENGINE_HANDLE_HOTKEY_DOWN
