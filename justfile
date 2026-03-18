@@ -17,6 +17,11 @@ rust_dir := "core"
 # Signing: defaults to ad-hoc, override with env var for real signing
 codesign_identity := env("WRENFLOW_CODESIGN_IDENTITY", "-")
 
+# Install git hooks for conventional commit validation
+setup-hooks:
+    git config core.hooksPath .githooks
+    @echo "Git hooks installed. Commits will be validated for conventional commit format."
+
 # Default: build debug
 default: build
 
@@ -56,6 +61,8 @@ bundle: swift
     plutil -replace CFBundleDisplayName -string "{{app_name}}" "{{contents}}/Info.plist"
     plutil -replace CFBundleExecutable -string "{{app_name}}" "{{contents}}/Info.plist"
     plutil -replace CFBundleIdentifier -string "{{bundle_id}}" "{{contents}}/Info.plist"
+    BUILD_NUMBER=$(git rev-list --count HEAD)
+    plutil -replace CFBundleVersion -string "$BUILD_NUMBER" "{{contents}}/Info.plist"
     cp {{icon_icns}} "{{resources}}/"
     swift build -c debug --product WrenflowCLI
     cp "$(swift build -c debug --show-bin-path)/WrenflowCLI" "{{macos_dir}}/wrenflow"

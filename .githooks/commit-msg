@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Conventional Commits validation
+MSG_FILE="$1"
+MSG=$(head -1 "$MSG_FILE")
+
+# Allow merge commits and revert commits
+if echo "$MSG" | grep -qE '^(Merge|Revert) '; then
+  exit 0
+fi
+
+# Conventional commit pattern: type(optional-scope): description
+if ! echo "$MSG" | grep -qE '^(feat|fix|refactor|chore|build|docs|style|perf|test|ci)(\(.+\))?: .+'; then
+  echo "ERROR: Commit message does not follow Conventional Commits format."
+  echo ""
+  echo "Expected: <type>(<optional scope>): <description>"
+  echo "Types: feat, fix, refactor, chore, build, docs, style, perf, test, ci"
+  echo ""
+  echo "Examples:"
+  echo "  feat(audio): add noise cancellation"
+  echo "  fix(ffi): resolve duplicate thiserror dependency"
+  echo "  chore: update gitignore"
+  echo ""
+  echo "Your message: $MSG"
+  exit 1
+fi
