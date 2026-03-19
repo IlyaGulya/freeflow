@@ -59,7 +59,7 @@ build:
 
     BIN_PATH="$(swift build -c debug --show-bin-path)"
     cp "$BIN_PATH/Wrenflow" "$MACOS/{{app_name}}"
-    cp "$BIN_PATH/WrenflowCLI" "$MACOS/wrenflow"
+    cp "$BIN_PATH/WrenflowCLI" "$MACOS/wrenflow-cli"
 
     cp Info.plist "$CONTENTS/"
     plutil -replace CFBundleName -string "{{app_name}}" "$CONTENTS/Info.plist"
@@ -131,7 +131,7 @@ release:
     echo "Binary sizes:"
     ls -lh "$BIN_PATH/Wrenflow" "$BIN_PATH/WrenflowCLI"
     cp "$BIN_PATH/Wrenflow" "$MACOS/{{release_app_name}}"
-    cp "$BIN_PATH/WrenflowCLI" "$MACOS/wrenflow"
+    cp "$BIN_PATH/WrenflowCLI" "$MACOS/wrenflow-cli"
 
     cp Info.plist "$CONTENTS/"
     plutil -replace CFBundleName -string "{{release_app_name}}" "$CONTENTS/Info.plist"
