@@ -29,18 +29,17 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Skip if release-please commit
-        if: env.IS_BETA == 'true'
+      - name: Check if release-please commit
         id: skip
         run: |
           MSG=$(git log -1 --pretty=%s)
-          if echo "$MSG" | grep -qE '^chore\(main\): release'; then
+          if [ "${{ env.IS_BETA }}" = "true" ] && echo "$MSG" | grep -qE '^chore\(main\): release'; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Select Xcode 16
+      - name: Select Xcode 26.3
         if: steps.skip.outputs.skip != 'true'
         run: sudo xcode-select -s /Applications/Xcode_26.3.app/Contents/Developer
 
