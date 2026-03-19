@@ -102,7 +102,7 @@ release: rust-release uniffi
 
     swift build -c release --arch arm64 -v
     BIN_PATH="$(swift build -c release --arch arm64 --show-bin-path)"
-    ls -lh "$BIN_PATH/Wrenflow"
+    ls -lh "$BIN_PATH/Wrenflow" "$BIN_PATH/WrenflowCLI"
     cp "$BIN_PATH/Wrenflow" "$MACOS/{{release_app_name}}"
 
     cp Info.plist "$CONTENTS/"
