@@ -100,8 +100,10 @@ release: rust-release uniffi
     RES="$CONTENTS/Resources"
     mkdir -p "$MACOS" "$RES"
 
-    swift build -c release --arch arm64
-    cp "$(swift build -c release --arch arm64 --show-bin-path)/Wrenflow" "$MACOS/{{release_app_name}}"
+    swift build -c release --arch arm64 -v
+    BIN_PATH="$(swift build -c release --arch arm64 --show-bin-path)"
+    ls -lh "$BIN_PATH/Wrenflow"
+    cp "$BIN_PATH/Wrenflow" "$MACOS/{{release_app_name}}"
 
     cp Info.plist "$CONTENTS/"
     plutil -replace CFBundleName -string "{{release_app_name}}" "$CONTENTS/Info.plist"
