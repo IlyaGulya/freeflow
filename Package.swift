@@ -23,9 +23,9 @@ let package = Package(
             ],
             path: "Sources",
             linkerSettings: [
-                .unsafeFlags(["-L\(packageDir)/core/target/debug", "-lwrenflow_ffi"],
+                .unsafeFlags(["\(packageDir)/core/target/debug/libwrenflow_ffi.a"],
                              .when(configuration: .debug)),
-                .unsafeFlags(["-L\(packageDir)/core/target/release", "-lwrenflow_ffi"],
+                .unsafeFlags(["\(packageDir)/core/target/release/libwrenflow_ffi.a"],
                              .when(configuration: .release)),
             ]
         ),
