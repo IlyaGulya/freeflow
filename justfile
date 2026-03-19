@@ -55,7 +55,6 @@ build:
     CONTENTS="$BUNDLE/Contents"
     MACOS="$CONTENTS/MacOS"
     RES="$CONTENTS/Resources"
-    rm -rf "$BUNDLE"
     mkdir -p "$MACOS" "$RES"
 
     BIN_PATH="$(swift build -c debug --show-bin-path)"
@@ -126,7 +125,6 @@ release:
     CONTENTS="$BUNDLE/Contents"
     MACOS="$CONTENTS/MacOS"
     RES="$CONTENTS/Resources"
-    rm -rf "$BUNDLE"
     mkdir -p "$MACOS" "$RES"
 
     BIN_PATH="$(swift build -c release --arch arm64 --show-bin-path)"
