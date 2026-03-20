@@ -6,6 +6,7 @@ import ServiceManagement
 struct SetupAccordionView: View {
     var onComplete: () -> Void
     @EnvironmentObject var appState: AppState
+    @EnvironmentObject var permissionState: PermissionStateObservable
 
     private enum SetupStep: Int, CaseIterable, Identifiable {
         case micPermission = 0
@@ -52,11 +53,10 @@ struct SetupAccordionView: View {
 
     @State private var activeStep: Int = 0
     @State private var skippedSteps: Set<SetupStep> = []
-    @State private var micPermissionGranted = false
-    @State private var accessibilityGranted = false
     @State private var customVocabularyInput = ""
-    @State private var accessibilityTimer: Timer?
-    @State private var screenRecordingTimer: Timer?
+
+    private var micPermissionGranted: Bool { permissionState.get(.microphone).isSatisfied }
+    private var accessibilityGranted: Bool { permissionState.get(.accessibility).isSatisfied }
 
     private enum TestPhase: Equatable { case idle, recording, transcribing, done }
     @State private var testPhase: TestPhase = .idle
@@ -230,25 +230,24 @@ struct SetupAccordionView: View {
 
                 Spacer()
 
-                if allDone {
-                    Button(action: onComplete) {
-                        Text("Get Started")
-                            .font(.system(size: 13, weight: .semibold))
+                if steps[activeStep].skippable {
+                    Button("Skip") {
+                        skippedSteps.insert(steps[activeStep])
+                        advanceFrom(activeStep)
                     }
-                    .keyboardShortcut(.defaultAction)
-                } else {
-                    if steps[activeStep].skippable {
-                        Button("Skip") {
-                            skippedSteps.insert(steps[activeStep])
-                            advanceFrom(activeStep)
-                        }
-                        .foregroundStyle(.secondary)
-                    }
-
-                    Button("Continue") { advanceFrom(activeStep) }
-                        .keyboardShortcut(.defaultAction)
-                        .disabled(!canContinue)
+                    .foregroundStyle(.secondary)
                 }
+
+                let isLastStep = activeStep == steps.count - 1
+                Button(isLastStep ? "Finish" : "Continue") {
+                    if isLastStep {
+                        onComplete()
+                    } else {
+                        advanceFrom(activeStep)
+                    }
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(!canContinue)
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 12)
@@ -256,21 +255,15 @@ struct SetupAccordionView: View {
         .frame(width: 460, height: 540)
         .onAppear {
             customVocabularyInput = appState.customVocabulary
-            checkMicPermission()
-            accessibilityGranted = AXIsProcessTrusted()
-            // Permission polling is handled by appState.permissionState
-            appState.startAccessibilityPolling()
+            // Start polling all permissions (1s interval)
+            permissionState.startPolling()
+            // Skip past already-satisfied permission steps
+            skipSatisfiedSteps()
             // Always initialize local transcription early in setup
             appState.localTranscriptionService.initialize()
         }
-        .onDisappear {
-            accessibilityTimer?.invalidate()
-            accessibilityTimer = nil
-            screenRecordingTimer?.invalidate()
-            screenRecordingTimer = nil
-            // Don't call stopTestHotkeyMonitoring() here — completeSetup()
-            // already called startHotkeyMonitoring() which we must not override.
-            // The test step's own onDisappear handles cleanup when navigating away.
+        .onChange(of: permissionState.states) { _ in
+            skipSatisfiedSteps()
         }
     }
 
@@ -502,28 +495,32 @@ struct SetupAccordionView: View {
         }
     }
 
+    /// Skip past permission steps that are already satisfied (e.g. on relaunch after granting in System Settings)
+    private func skipSatisfiedSteps() {
+        while !allDone {
+            let step = steps[activeStep]
+            let satisfied: Bool
+            switch step {
+            case .micPermission: satisfied = micPermissionGranted
+            case .accessibility: satisfied = accessibilityGranted
+            default: return // non-permission step — stop skipping
+            }
+            guard satisfied else { return }
+            withAnimation(.easeInOut(duration: 0.3)) {
+                activeStep += 1
+            }
+        }
+    }
+
     // MARK: - Helpers
 
-    private func checkMicPermission() { micPermissionGranted = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized }
-
     private func requestMicPermission() {
-        AVCaptureDevice.requestAccess(for: .audio) { granted in
-            DispatchQueue.main.async { micPermissionGranted = granted }
-        }
+        permissionState.request(.microphone)
     }
 
     private func requestAccessibility() {
-        AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary)
+        permissionState.request(.accessibility)
     }
-
-    private func startAccessibilityPolling() {
-        accessibilityTimer?.invalidate()
-        accessibilityTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in
-            DispatchQueue.main.async { accessibilityGranted = AXIsProcessTrusted() }
-        }
-    }
-
-    // Screen recording polling is now handled by appState.permissionState
 
     private func startTestHotkeyMonitoring() {
         print("[SetupWizard] startTestHotkeyMonitoring called, starting hotkey: \(appState.selectedHotkey)")

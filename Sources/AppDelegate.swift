@@ -119,6 +119,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self?.completeSetup()
         })
         .environmentObject(appState)
+        .environmentObject(appState.permissionState)
 
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 560),
