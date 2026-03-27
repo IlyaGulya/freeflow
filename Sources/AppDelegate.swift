@@ -9,6 +9,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var modelDownloadWindow: NSWindow?
     private var modelStateCancellable: AnyCancellable?
 
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if let w = setupWindow {
+            w.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+        }
+        return true
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NotificationCenter.default.addObserver(
             self,
@@ -121,20 +129,25 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         .environmentObject(appState)
         .environmentObject(appState.permissionState)
 
+        let hostingView = NSHostingView(rootView: setupView)
+        hostingView.setFrameSize(NSSize(width: 340, height: 1))
+        let fitted = hostingView.fittingSize
+        hostingView.setFrameSize(fitted)
+
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 500, height: 560),
-            styleMask: [.titled, .closable, .fullSizeContentView],
+            contentRect: NSRect(origin: .zero, size: fitted),
+            styleMask: [.borderless],
             backing: .buffered,
             defer: false
         )
-        window.title = "Wrenflow"
-        window.titlebarAppearsTransparent = true
+        window.contentView = hostingView
+        window.isReleasedWhenClosed = false
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.hasShadow = false  // SwiftUI view draws its own shadow
         window.isMovableByWindowBackground = true
-        window.contentView = NSHostingView(rootView: setupView)
-        window.minSize = NSSize(width: 520, height: 480)
         window.center()
         window.makeKeyAndOrderFront(nil)
-        window.isReleasedWhenClosed = false
 
         self.setupWindow = window
         NSApp.activate(ignoringOtherApps: true)

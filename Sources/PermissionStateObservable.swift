@@ -161,16 +161,26 @@ final class PermissionStateObservable: ObservableObject {
     }
 
     private func performRequest(_ kind: PermissionKind) {
+        // Don't do anything if already granted
+        if get(kind).isSatisfied { return }
+
         switch kind {
         case .microphone:
             let status = AVCaptureDevice.authorizationStatus(for: .audio)
             if status == .notDetermined {
                 // First time — show system dialog
-                AVCaptureDevice.requestAccess(for: .audio) { [weak self] _ in
-                    DispatchQueue.main.async { self?.refresh() }
+                AVCaptureDevice.requestAccess(for: .audio) { [weak self] granted in
+                    DispatchQueue.main.async {
+                        if granted {
+                            self?.states[.microphone] = .granted
+                            self?.objectWillChange.send()
+                            print("[Permissions] mic granted via dialog")
+                        }
+                        self?.refresh()
+                    }
                 }
-            } else {
-                // Already denied or restricted — open System Settings
+            } else if status == .denied || status == .restricted {
+                // Already denied — open System Settings
                 temporarilyLowerFloatingPanels()
                 if let url = kind.settingsURL {
                     NSWorkspace.shared.open(url)

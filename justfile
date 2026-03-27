@@ -14,8 +14,8 @@ icon_bg := "#f5f3f0"
 icon_padding := "80"
 rust_dir := "core"
 
-# Signing: defaults to ad-hoc, override with env var for real signing
-codesign_identity := env("WRENFLOW_CODESIGN_IDENTITY", "-")
+# Signing: defaults to Apple Development for stable TCC permissions in debug
+codesign_identity := env("WRENFLOW_CODESIGN_IDENTITY", "Apple Development")
 
 # Install git hooks for conventional commit validation
 setup-hooks:
