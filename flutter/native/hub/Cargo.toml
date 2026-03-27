@@ -26,6 +26,9 @@ async-trait = "0.1.87"
 messages = "0.3.1"
 wrenflow-domain = { path = "../../../core/wrenflow-domain" }
 wrenflow-core = { path = "../../../core/wrenflow-core" }
+rdev = "0.5"
+enigo = "0.6"
+arboard = "3"
 
 # Uncomment below to target the web.
 # tokio_with_wasm = { version = "0.8.5", features = ["rt", "macros", "time"] }

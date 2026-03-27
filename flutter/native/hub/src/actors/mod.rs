@@ -1,19 +1,22 @@
 //! Actor system for Wrenflow hub.
 
 pub mod audio_actor;
+pub mod hotkey_actor;
+pub mod paste_actor;
 mod pipeline_actor;
 
-use audio_actor::{AudioActor, AudioEvent};
+use audio_actor::AudioActor;
+use hotkey_actor::HotkeyActor;
 use pipeline_actor::PipelineActor;
 use rinf::{DartSignal, RustSignal};
 use tokio::spawn;
-use wrenflow_domain::pipeline::TranscriptionResult;
 
 use crate::signals;
 
 pub async fn create_actors() {
     let mut pipeline = PipelineActor::new();
-    let mut audio = AudioActor::new();
+    let _audio = AudioActor::new();
+    let mut hotkey = HotkeyActor::new("fn");
 
     // Listen for device listing requests
     spawn(async {
@@ -24,10 +27,29 @@ pub async fn create_actors() {
         }
     });
 
-    // Main loop: pipeline + audio events
-    // For now pipeline runs its own select loop.
-    // Audio events will be integrated when transcription is wired.
+    // Main loop: hotkey events drive the pipeline
     spawn(async move {
-        pipeline.run().await;
+        let config_recv = signals::UpdateConfig::get_dart_signal_receiver();
+
+        loop {
+            tokio::select! {
+                Some(event) = hotkey.recv() => {
+                    match event {
+                        hotkey_actor::HotkeyEvent::KeyDown => {
+                            pipeline.handle_hotkey_down();
+                        }
+                        hotkey_actor::HotkeyEvent::KeyUp { duration_ms } => {
+                            pipeline.handle_hotkey_up(duration_ms);
+                        }
+                    }
+                }
+                Some(pack) = config_recv.recv() => {
+                    pipeline.handle_config_update(pack.message);
+                }
+                else => break,
+            }
+
+            pipeline.check_timers().await;
+        }
     });
 }
