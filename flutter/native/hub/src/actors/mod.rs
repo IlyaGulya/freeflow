@@ -1,11 +1,13 @@
 //! Actor system for Wrenflow hub.
 
 pub mod audio_actor;
+pub mod history_actor;
 pub mod hotkey_actor;
 pub mod paste_actor;
 mod pipeline_actor;
 
 use audio_actor::AudioActor;
+use history_actor::HistoryActor;
 use hotkey_actor::HotkeyActor;
 use pipeline_actor::PipelineActor;
 use rinf::{DartSignal, RustSignal};
@@ -17,6 +19,19 @@ pub async fn create_actors() {
     let mut pipeline = PipelineActor::new();
     let _audio = AudioActor::new();
     let mut hotkey = HotkeyActor::new("fn");
+
+    // History actor — owns SQLite store on its own thread (Connection is !Send)
+    let history_path = history_actor::default_history_path();
+    match HistoryActor::new(history_path) {
+        Ok(history) => {
+            std::thread::spawn(move || {
+                history.run_blocking();
+            });
+        }
+        Err(e) => {
+            log::error!("Failed to start history actor: {e}");
+        }
+    }
 
     // Listen for device listing requests
     spawn(async {
