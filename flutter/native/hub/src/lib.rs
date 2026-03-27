@@ -1,27 +1,23 @@
-//! This `hub` crate is the
-//! entry point of the Rust logic.
+//! Wrenflow hub crate — entry point for Rust logic.
+//! Communicates with Flutter/Dart via rinf signals.
 
 mod actors;
-mod signals;
+pub mod signals;
 
 use actors::create_actors;
 use rinf::{dart_shutdown, write_interface};
 use tokio::spawn;
 
-// Uncomment below to target the web.
-// use tokio_with_wasm::alias as tokio;
-
 write_interface!();
 
-// You can go with any async library, not just `tokio`.
-#[tokio::main(flavor = "current_thread")]
+#[tokio::main(flavor = "multi_thread", worker_threads = 2)]
 async fn main() {
-    // Spawn concurrent tasks.
-    // Always use non-blocking async functions like `tokio::fs::File::open`.
-    // If you must use blocking code, use `tokio::task::spawn_blocking`
-    // or the equivalent provided by your async library.
+    // Initialize logging
+    env_logger::init();
+
+    // Spawn the actor system
     spawn(create_actors());
 
-    // Keep the main function running until Dart shutdown.
+    // Keep running until Dart shuts down
     dart_shutdown().await;
 }
