@@ -1,13 +1,39 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:rinf/rinf.dart';
+import 'package:window_manager/window_manager.dart';
 import 'src/bindings/bindings.dart';
+import 'widgets/system_tray.dart';
 
 Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialize window manager to control window visibility and dock behavior.
+  await windowManager.ensureInitialized();
+
+  const windowOptions = WindowOptions(
+    size: Size(400, 300),
+    minimumSize: Size(300, 200),
+    skipTaskbar: true, // Hide from dock — menu bar only.
+  );
+
+  await windowManager.waitUntilReadyToShow(windowOptions, () async {
+    // Hide the main window on startup; the app lives in the menu bar.
+    await windowManager.hide();
+  });
+
   await initializeRust(assignRustSignal);
+
+  final container = ProviderContainer();
+
+  // Initialize the system tray (menu bar icon + context menu).
+  final systemTray = SystemTrayManager(container);
+  await systemTray.init();
+
   runApp(
-    const ProviderScope(
-      child: MyApp(),
+    UncontrolledProviderScope(
+      container: container,
+      child: const MyApp(),
     ),
   );
 }

@@ -3,6 +3,7 @@
 pub mod audio_actor;
 pub mod history_actor;
 pub mod hotkey_actor;
+pub mod model_actor;
 pub mod paste_actor;
 mod pipeline_actor;
 
@@ -32,6 +33,9 @@ pub async fn create_actors() {
             log::error!("Failed to start history actor: {e}");
         }
     }
+
+    // Model download/load actor
+    spawn(model_actor::run());
 
     // Listen for device listing requests
     spawn(async {

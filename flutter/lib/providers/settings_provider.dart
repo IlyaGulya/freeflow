@@ -69,14 +69,10 @@ class AppSettings {
   /// Convert to the rinf UpdateConfig signal for sending to Rust.
   UpdateConfig toUpdateConfig() {
     return UpdateConfig(
-      apiKey: apiKey,
-      apiBaseUrl: apiBaseUrl,
       selectedHotkey: selectedHotkey,
       selectedMicrophoneId: selectedMicrophoneId,
       soundEnabled: soundEnabled,
       customVocabulary: customVocabulary,
-      transcriptionProvider: transcriptionProvider,
-      transcriptionModel: transcriptionModel,
       minimumRecordingDurationMs: minimumRecordingDurationMs,
     );
   }
