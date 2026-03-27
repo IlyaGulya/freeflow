@@ -31,7 +31,7 @@ Future<void> main() async {
   } else {
     // Setup wizard — borderless floating card, like original Swift app.
     const windowOptions = WindowOptions(
-      size: Size(380, 520),
+      size: Size(380, 500),
       minimumSize: Size(340, 400),
       center: true,
       title: '',

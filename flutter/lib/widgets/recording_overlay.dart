@@ -1,31 +1,26 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:wrenflow/providers/audio_level_provider.dart';
 import 'package:wrenflow/providers/pipeline_state_provider.dart';
 import 'package:wrenflow/src/bindings/signals/signals.dart';
+import 'package:wrenflow/theme/wrenflow_theme.dart';
+import 'package:wrenflow/widgets/initializing_dots.dart';
 import 'package:wrenflow/widgets/waveform_painter.dart';
 
 /// Floating overlay that shows recording status.
 ///
-/// Visible whenever the pipeline is active (Starting through Pasting) and
-/// hidden when Idle. Displays phase-appropriate content:
-///   - Starting / Initializing: loading spinner
-///   - Recording: animated waveform driven by audio level
-///   - Transcribing: spinner with "Transcribing..." label
-///   - Pasting: checkmark with "Done" label (auto-dismisses)
+/// Light theme, compact: 120pt wide, 32pt tall, corner 12.
+/// States: initializing = 3-dot anim, recording = waveform only,
+/// transcribing = 3-dot anim, done = fade out.
 class RecordingOverlay extends ConsumerWidget {
   const RecordingOverlay({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final pipelineAsync = ref.watch(pipelineStateProvider);
-
     final state = pipelineAsync.value;
 
-    // Not visible when idle, on error, or before the first signal arrives.
     if (state == null ||
         state is PipelineStateIdle ||
         state is PipelineStateError) {
@@ -35,11 +30,6 @@ class RecordingOverlay extends ConsumerWidget {
     return _AnimatedOverlayContainer(state: state);
   }
 }
-
-// ---------------------------------------------------------------------------
-// Internal stateful wrapper -- owns the AnimationController for the waveform
-// idle loop and the cross-fade between phases.
-// ---------------------------------------------------------------------------
 
 class _AnimatedOverlayContainer extends ConsumerStatefulWidget {
   const _AnimatedOverlayContainer({required this.state});
@@ -73,25 +63,32 @@ class _AnimatedOverlayContainerState
 
   @override
   Widget build(BuildContext context) {
+    final isDone = widget.state is PipelineStatePasting;
+
     return Center(
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-        decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: 0.80),
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.40),
-              blurRadius: 24,
-              offset: const Offset(0, 4),
+      child: AnimatedOpacity(
+        opacity: isDone ? 0.0 : 1.0,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOut,
+        child: Container(
+          width: 120,
+          height: 32,
+          decoration: BoxDecoration(
+            color: WrenflowStyle.bg,
+            borderRadius: BorderRadius.circular(WrenflowStyle.radiusLarge),
+            border: Border.all(
+              color: Colors.black.withValues(alpha: 0.08),
+              width: 0.5,
             ),
-          ],
-        ),
-        child: AnimatedSwitcher(
-          duration: const Duration(milliseconds: 250),
-          switchInCurve: Curves.easeOut,
-          switchOutCurve: Curves.easeIn,
-          child: _buildPhaseContent(widget.state),
+          ),
+          child: Center(
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 250),
+              switchInCurve: Curves.easeOut,
+              switchOutCurve: Curves.easeIn,
+              child: _buildPhaseContent(widget.state),
+            ),
+          ),
         ),
       ),
     );
@@ -100,54 +97,18 @@ class _AnimatedOverlayContainerState
   Widget _buildPhaseContent(PipelineState state) {
     return switch (state) {
       PipelineStateStarting() || PipelineStateInitializing() =>
-        _LoadingContent(key: const ValueKey('loading')),
+        const InitializingDots(key: ValueKey('loading')),
       PipelineStateRecording() => _RecordingContent(
         key: const ValueKey('recording'),
         controller: _controller,
         ref: ref,
       ),
       PipelineStateTranscribing() =>
-        _TranscribingContent(key: const ValueKey('transcribing')),
+        const InitializingDots(key: ValueKey('transcribing')),
       PipelineStatePasting() =>
-        _DoneContent(key: const ValueKey('done')),
-      // Idle/Error are filtered out in the parent widget, but the
-      // exhaustiveness checker needs a default branch.
+        const SizedBox.shrink(key: ValueKey('done')),
       _ => const SizedBox.shrink(),
     };
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Phase-specific content widgets
-// ---------------------------------------------------------------------------
-
-class _LoadingContent extends StatelessWidget {
-  const _LoadingContent({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return const Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        SizedBox(
-          width: 20,
-          height: 20,
-          child: CircularProgressIndicator(
-            strokeWidth: 2.5,
-            color: Colors.white70,
-          ),
-        ),
-        SizedBox(width: 12),
-        Text(
-          'Starting...',
-          style: TextStyle(
-            color: Colors.white70,
-            fontSize: 14,
-            fontWeight: FontWeight.w500,
-          ),
-        ),
-      ],
-    );
   }
 }
 
@@ -166,108 +127,17 @@ class _RecordingContent extends StatelessWidget {
     final audioAsync = ref.watch(audioLevelProvider);
     final audioLevel = audioAsync.value ?? 0.0;
 
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        _PulsingDot(controller: controller),
-        const SizedBox(width: 12),
-        AnimatedBuilder(
-          animation: controller,
-          builder: (context, _) {
-            return CustomPaint(
-              size: const Size(48, 28),
-              painter: WaveformPainter(
-                audioLevel: audioLevel,
-                animationValue: controller.value,
-                barColor: Colors.white,
-              ),
-            );
-          },
-        ),
-      ],
-    );
-  }
-}
-
-class _PulsingDot extends StatelessWidget {
-  const _PulsingDot({required this.controller});
-
-  final AnimationController controller;
-
-  @override
-  Widget build(BuildContext context) {
     return AnimatedBuilder(
       animation: controller,
-      builder: (context, child) {
-        // Gentle pulse: opacity oscillates between 0.6 and 1.0.
-        final t = math.sin(controller.value * 2 * math.pi);
-        final pulse = 0.6 + 0.4 * (t + 1) / 2;
-        return Opacity(
-          opacity: pulse,
-          child: child,
+      builder: (context, _) {
+        return CustomPaint(
+          size: const Size(80, 20),
+          painter: WaveformPainter(
+            audioLevel: audioLevel,
+            animationValue: controller.value,
+          ),
         );
       },
-      child: Container(
-        width: 10,
-        height: 10,
-        decoration: const BoxDecoration(
-          color: Colors.redAccent,
-          shape: BoxShape.circle,
-        ),
-      ),
-    );
-  }
-}
-
-class _TranscribingContent extends StatelessWidget {
-  const _TranscribingContent({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return const Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        SizedBox(
-          width: 20,
-          height: 20,
-          child: CircularProgressIndicator(
-            strokeWidth: 2.5,
-            color: Colors.white70,
-          ),
-        ),
-        SizedBox(width: 12),
-        Text(
-          'Transcribing...',
-          style: TextStyle(
-            color: Colors.white70,
-            fontSize: 14,
-            fontWeight: FontWeight.w500,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _DoneContent extends StatelessWidget {
-  const _DoneContent({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return const Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(Icons.check_circle, color: Colors.greenAccent, size: 22),
-        SizedBox(width: 10),
-        Text(
-          'Done',
-          style: TextStyle(
-            color: Colors.greenAccent,
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ],
     );
   }
 }

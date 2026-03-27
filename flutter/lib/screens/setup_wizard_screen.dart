@@ -6,6 +6,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../providers/permissions_provider.dart';
 import '../providers/settings_provider.dart';
 import '../services/permission_service.dart';
+import '../theme/wrenflow_theme.dart';
+import '../widgets/green_toggle.dart';
 
 /// shared_preferences key for setup completion.
 const _kHasCompletedSetup = 'has_completed_setup';
@@ -31,22 +33,14 @@ enum _SetupStep {
   vocabulary,
   complete;
 
-  /// Human-readable step number (1-based).
   int get number => index + 1;
-
-  /// Total number of steps.
   static int get totalSteps => values.length;
 }
 
-/// Multi-step onboarding wizard shown on first launch.
-///
-/// Walks the user through granting microphone and accessibility permissions,
-/// selecting a hotkey, optionally entering custom vocabulary, and then
-/// marks setup as complete in shared_preferences.
+/// Multi-step onboarding wizard — pixel-perfect port of Swift WrenflowStyle.
 class SetupWizardScreen extends ConsumerStatefulWidget {
   const SetupWizardScreen({super.key, required this.onComplete});
 
-  /// Called when the user finishes (or skips past) the wizard.
   final VoidCallback onComplete;
 
   @override
@@ -59,9 +53,7 @@ class _SetupWizardScreenState extends ConsumerState<SetupWizardScreen> {
   _SetupStep _currentStep = _SetupStep.microphone;
   String _selectedHotkey = 'rightOption';
   final _vocabularyController = TextEditingController();
-
-  /// Track whether we already auto-advanced for each permission step so we
-  /// don't re-trigger if the user navigates back.
+  bool _launchAtLogin = true;
   final _autoAdvanced = <_SetupStep>{};
 
   @override
@@ -70,13 +62,7 @@ class _SetupWizardScreenState extends ConsumerState<SetupWizardScreen> {
     super.dispose();
   }
 
-  // ---------------------------------------------------------------------------
-  // Navigation
-  // ---------------------------------------------------------------------------
-
-  void _goToStep(_SetupStep step) {
-    setState(() => _currentStep = step);
-  }
+  void _goToStep(_SetupStep step) => setState(() => _currentStep = step);
 
   void _next() {
     final nextIndex = _currentStep.index + 1;
@@ -85,8 +71,13 @@ class _SetupWizardScreenState extends ConsumerState<SetupWizardScreen> {
     }
   }
 
+  void _back() {
+    if (_currentStep.index > 0) {
+      _goToStep(_SetupStep.values[_currentStep.index - 1]);
+    }
+  }
+
   Future<void> _finish() async {
-    // Persist vocabulary & hotkey choices.
     final notifier = ref.read(settingsProvider.notifier);
     await notifier.setSelectedHotkey(_selectedHotkey);
     final vocab = _vocabularyController.text.trim();
@@ -94,36 +85,50 @@ class _SetupWizardScreenState extends ConsumerState<SetupWizardScreen> {
       await notifier.setCustomVocabulary(vocab);
     }
 
-    // Mark setup as complete.
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_kHasCompletedSetup, true);
-
-    // Invalidate the provider so downstream consumers see the new value.
     ref.invalidate(hasCompletedSetupProvider);
-
     widget.onComplete();
   }
 
-  // ---------------------------------------------------------------------------
-  // Build
-  // ---------------------------------------------------------------------------
-
   @override
   Widget build(BuildContext context) {
-    // Watch permissions so we can auto-advance.
     final permissions = ref.watch(permissionsProvider);
     _handleAutoAdvance(permissions);
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F7),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
+      backgroundColor: Colors.transparent,
+      body: Center(
+        child: Container(
+          width: 340,
+          decoration: WrenflowStyle.cardDecoration,
           child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              _buildStepIndicator(),
-              const SizedBox(height: 32),
-              Expanded(child: _buildCurrentStep(permissions)),
+              Flexible(
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 250),
+                  switchInCurve: Curves.easeInOut,
+                  switchOutCurve: Curves.easeInOut,
+                  transitionBuilder: (child, animation) {
+                    return FadeTransition(
+                      opacity: animation,
+                      child: SlideTransition(
+                        position: Tween<Offset>(
+                          begin: const Offset(0.05, 0),
+                          end: Offset.zero,
+                        ).animate(animation),
+                        child: child,
+                      ),
+                    );
+                  },
+                  child: _buildCurrentStep(
+                    permissions,
+                    key: ValueKey(_currentStep),
+                  ),
+                ),
+              ),
+              _buildFooter(),
             ],
           ),
         ),
@@ -131,18 +136,13 @@ class _SetupWizardScreenState extends ConsumerState<SetupWizardScreen> {
     );
   }
 
-  /// Auto-advance permission steps when the user grants the permission in
-  /// System Settings (detected by the polling provider).
   void _handleAutoAdvance(PermissionsState permissions) {
     if (_currentStep == _SetupStep.microphone &&
         permissions.microphone == PermissionStatus.granted &&
         !_autoAdvanced.contains(_SetupStep.microphone)) {
       _autoAdvanced.add(_SetupStep.microphone);
-      // Schedule the navigation for after this build frame.
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && _currentStep == _SetupStep.microphone) {
-          _next();
-        }
+        if (mounted && _currentStep == _SetupStep.microphone) _next();
       });
     }
 
@@ -151,34 +151,65 @@ class _SetupWizardScreenState extends ConsumerState<SetupWizardScreen> {
         !_autoAdvanced.contains(_SetupStep.accessibility)) {
       _autoAdvanced.add(_SetupStep.accessibility);
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && _currentStep == _SetupStep.accessibility) {
-          _next();
-        }
+        if (mounted && _currentStep == _SetupStep.accessibility) _next();
       });
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // Step indicator
-  // ---------------------------------------------------------------------------
+  // ── Footer ──────────────────────────────────────────────────
 
-  Widget _buildStepIndicator() {
+  Widget _buildFooter() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      child: Row(
+        children: [
+          // Back button
+          if (_currentStep.index > 0)
+            GestureDetector(
+              onTap: _back,
+              child: Text('Back', style: WrenflowStyle.body(12).copyWith(
+                color: WrenflowStyle.textTertiary,
+              )),
+            )
+          else
+            const SizedBox(width: 32),
+
+          const Spacer(),
+
+          // Step dots
+          _buildStepDots(),
+
+          const Spacer(),
+
+          // Action button
+          _buildFooterAction(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStepDots() {
     return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
+      mainAxisSize: MainAxisSize.min,
       children: List.generate(_SetupStep.totalSteps, (i) {
-        final isActive = i == _currentStep.index;
+        final isCurrent = i == _currentStep.index;
         final isCompleted = i < _currentStep.index;
+        final double size = isCurrent ? 6 : 5;
+        final Color color = isCurrent
+            ? WrenflowStyle.textOp50
+            : isCompleted
+                ? WrenflowStyle.greenOp50
+                : WrenflowStyle.textOp10;
+
         return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 4),
+          padding: EdgeInsets.only(left: i > 0 ? 5 : 0),
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 200),
-            width: isActive ? 24 : 8,
-            height: 8,
+            width: size,
+            height: size,
             decoration: BoxDecoration(
-              color: isActive || isCompleted
-                  ? CupertinoColors.activeBlue
-                  : const Color(0xFFD1D1D6),
-              borderRadius: BorderRadius.circular(4),
+              shape: BoxShape.circle,
+              color: color,
             ),
           ),
         );
@@ -186,357 +217,259 @@ class _SetupWizardScreenState extends ConsumerState<SetupWizardScreen> {
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // Step content
-  // ---------------------------------------------------------------------------
+  Widget _buildFooterAction() {
+    if (_currentStep == _SetupStep.complete) {
+      return _FooterButton(
+        label: 'Finish',
+        onTap: _finish,
+      );
+    }
+    return _FooterButton(
+      label: 'Next',
+      onTap: _next,
+    );
+  }
 
-  Widget _buildCurrentStep(PermissionsState permissions) {
+  // ── Step content ────────────────────────────────────────────
+
+  Widget _buildCurrentStep(PermissionsState permissions, {Key? key}) {
     return switch (_currentStep) {
-      _SetupStep.microphone => _buildMicrophoneStep(permissions),
-      _SetupStep.accessibility => _buildAccessibilityStep(permissions),
-      _SetupStep.hotkey => _buildHotkeyStep(),
-      _SetupStep.vocabulary => _buildVocabularyStep(),
-      _SetupStep.complete => _buildCompleteStep(),
+      _SetupStep.microphone => _buildPermissionStep(
+        key: key,
+        icon: CupertinoIcons.mic_fill,
+        title: 'Microphone',
+        subtitle: 'Wrenflow needs microphone access to record your voice.',
+        isGranted: permissions.microphone == PermissionStatus.granted,
+        onGrant: () => _permissionService.requestMicrophone(),
+      ),
+      _SetupStep.accessibility => _buildPermissionStep(
+        key: key,
+        icon: CupertinoIcons.hand_raised_fill,
+        title: 'Accessibility',
+        subtitle: 'Required for global hotkey and pasting text.',
+        isGranted: permissions.accessibility == PermissionStatus.granted,
+        onGrant: () => _permissionService.requestAccessibility(),
+      ),
+      _SetupStep.hotkey => _buildHotkeyStep(key: key),
+      _SetupStep.vocabulary => _buildVocabularyStep(key: key),
+      _SetupStep.complete => _buildCompleteStep(key: key),
     };
   }
 
-  // -- Microphone permission --------------------------------------------------
-
-  Widget _buildMicrophoneStep(PermissionsState permissions) {
-    final isGranted = permissions.microphone == PermissionStatus.granted;
-
-    return _StepLayout(
-      stepLabel: 'Step ${_SetupStep.microphone.number} of ${_SetupStep.totalSteps}',
-      icon: CupertinoIcons.mic_fill,
-      iconColor: const Color(0xFFFF3B30),
-      title: 'Microphone Access',
-      description:
-          'Wrenflow needs microphone access to record your voice for '
-          'transcription. Audio is processed locally or sent to your '
-          'configured transcription service — it is never stored.',
-      status: isGranted ? const _PermissionBadge.granted() : null,
-      action: isGranted
-          ? _buildContinueButton(onPressed: _next)
-          : _buildGrantButton(
-              label: 'Grant Microphone Access',
-              onPressed: () => _permissionService.requestMicrophone(),
-            ),
-    );
-  }
-
-  // -- Accessibility permission -----------------------------------------------
-
-  Widget _buildAccessibilityStep(PermissionsState permissions) {
-    final isGranted = permissions.accessibility == PermissionStatus.granted;
-
-    return _StepLayout(
-      stepLabel:
-          'Step ${_SetupStep.accessibility.number} of ${_SetupStep.totalSteps}',
-      icon: CupertinoIcons.hand_raised_fill,
-      iconColor: const Color(0xFF5856D6),
-      title: 'Accessibility Access',
-      description:
-          'Wrenflow uses accessibility permissions to listen for your '
-          'global hotkey and to paste transcribed text into the active '
-          'application.',
-      status: isGranted ? const _PermissionBadge.granted() : null,
-      action: isGranted
-          ? _buildContinueButton(onPressed: _next)
-          : _buildGrantButton(
-              label: 'Open Accessibility Settings',
-              onPressed: () => _permissionService.requestAccessibility(),
-            ),
-    );
-  }
-
-  // -- Hotkey selection -------------------------------------------------------
-
-  Widget _buildHotkeyStep() {
-    return _StepLayout(
-      stepLabel: 'Step ${_SetupStep.hotkey.number} of ${_SetupStep.totalSteps}',
-      icon: CupertinoIcons.keyboard,
-      iconColor: const Color(0xFFFF9500),
-      title: 'Choose Your Hotkey',
-      description:
-          'Pick a key to hold while dictating. Press and hold it to start '
-          'recording, then release to transcribe and paste.',
-      action: _buildContinueButton(onPressed: _next),
-      child: Column(
-        children: [
-          const SizedBox(height: 16),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: const Color(0xFFD1D1D6)),
-            ),
-            child: DropdownButtonHideUnderline(
-              child: DropdownButton<String>(
-                value: _selectedHotkey,
-                isExpanded: true,
-                items: _hotkeyOptions.entries
-                    .map((e) => DropdownMenuItem(
-                          value: e.key,
-                          child: Text(e.value),
-                        ))
-                    .toList(),
-                onChanged: (value) {
-                  if (value != null) {
-                    setState(() => _selectedHotkey = value);
-                  }
-                },
-                style: const TextStyle(fontSize: 14, color: Colors.black87),
-                icon: const Icon(CupertinoIcons.chevron_down, size: 14),
-              ),
-            ),
-          ),
-          const SizedBox(height: 24),
-        ],
-      ),
-    );
-  }
-
-  // -- Custom vocabulary (optional) -------------------------------------------
-
-  Widget _buildVocabularyStep() {
-    return _StepLayout(
-      stepLabel:
-          'Step ${_SetupStep.vocabulary.number} of ${_SetupStep.totalSteps}',
-      icon: CupertinoIcons.textformat_abc,
-      iconColor: const Color(0xFF34C759),
-      title: 'Custom Vocabulary',
-      description:
-          'Add names, acronyms, or technical terms that the transcription '
-          'engine might not recognise. One entry per line. You can always '
-          'update this later in Settings.',
-      action: Row(
-        children: [
-          Expanded(
-            child: CupertinoButton(
-              padding: const EdgeInsets.symmetric(vertical: 14),
-              onPressed: _next,
-              child: const Text(
-                'Skip',
-                style: TextStyle(
-                  fontSize: 15,
-                  color: Color(0xFF8E8E93),
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(child: _buildContinueButton(onPressed: _next)),
-        ],
-      ),
-      child: Column(
-        children: [
-          const SizedBox(height: 16),
-          CupertinoTextField(
-            controller: _vocabularyController,
-            maxLines: 5,
-            minLines: 3,
-            placeholder: 'e.g.\nWrenflow\nRiverpod\nKubernetes',
-            padding: const EdgeInsets.all(12),
-            style: const TextStyle(fontSize: 13),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: const Color(0xFFD1D1D6)),
-            ),
-          ),
-          const SizedBox(height: 24),
-        ],
-      ),
-    );
-  }
-
-  // -- Complete ---------------------------------------------------------------
-
-  Widget _buildCompleteStep() {
-    return _StepLayout(
-      stepLabel:
-          'Step ${_SetupStep.complete.number} of ${_SetupStep.totalSteps}',
-      icon: CupertinoIcons.checkmark_seal_fill,
-      iconColor: const Color(0xFF34C759),
-      title: 'You\'re All Set!',
-      description:
-          'Wrenflow is ready to go. Hold your hotkey to record, release to '
-          'transcribe, and the text will be pasted into the active app.',
-      action: SizedBox(
-        width: double.infinity,
-        child: CupertinoButton.filled(
-          onPressed: _finish,
-          child: const Text(
-            'Start Using Wrenflow',
-            style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
-          ),
-        ),
-      ),
-    );
-  }
-
-  // ---------------------------------------------------------------------------
-  // Shared button builders
-  // ---------------------------------------------------------------------------
-
-  Widget _buildContinueButton({required VoidCallback onPressed}) {
-    return SizedBox(
-      width: double.infinity,
-      child: CupertinoButton.filled(
-        onPressed: onPressed,
-        child: const Text(
-          'Continue',
-          style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildGrantButton({
-    required String label,
-    required VoidCallback onPressed,
+  Widget _buildPermissionStep({
+    Key? key,
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required bool isGranted,
+    required VoidCallback onGrant,
   }) {
-    return SizedBox(
-      width: double.infinity,
-      child: CupertinoButton.filled(
-        onPressed: onPressed,
-        child: Text(
-          label,
-          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
-        ),
-      ),
+    return _StepContent(
+      key: key,
+      icon: icon,
+      title: title,
+      subtitle: subtitle,
+      child: isGranted
+          ? _grantedBadge()
+          : _grantButton(onTap: onGrant),
     );
   }
-}
 
-// =============================================================================
-// Helper widgets
-// =============================================================================
-
-/// Standard layout for each wizard step.
-class _StepLayout extends StatelessWidget {
-  const _StepLayout({
-    required this.stepLabel,
-    required this.icon,
-    required this.iconColor,
-    required this.title,
-    required this.description,
-    this.status,
-    this.child,
-    required this.action,
-  });
-
-  final String stepLabel;
-  final IconData icon;
-  final Color iconColor;
-  final String title;
-  final String description;
-  final _PermissionBadge? status;
-  final Widget? child;
-  final Widget action;
-
-  @override
-  Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      child: Column(
+  Widget _grantedBadge() {
+    return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        const SizedBox(height: 24),
-
-        // Step label.
-        Text(
-          stepLabel,
-          style: const TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w500,
-            color: Color(0xFF8E8E93),
-          ),
-        ),
-        const SizedBox(height: 16),
-
-        // Icon badge.
-        Container(
-          width: 64,
-          height: 64,
-          decoration: BoxDecoration(
-            color: iconColor.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(16),
-          ),
-          child: Icon(icon, size: 32, color: iconColor),
-        ),
-        const SizedBox(height: 20),
-
-        // Title.
-        Text(
-          title,
-          textAlign: TextAlign.center,
-          style: const TextStyle(
-            fontSize: 22,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-        const SizedBox(height: 12),
-
-        // Description.
-        Text(
-          description,
-          textAlign: TextAlign.center,
-          style: const TextStyle(
-            fontSize: 14,
-            color: Color(0xFF6E6E73),
-            height: 1.4,
-          ),
-        ),
-
-        // Permission status badge.
-        if (status != null) ...[
-          const SizedBox(height: 16),
-          status!,
-        ],
-
-        // Optional extra content (dropdown, text field, etc.).
-        if (child != null) child!,
-
-        const SizedBox(height: 24),
-
-        // Bottom action area.
-        action,
-
-        const SizedBox(height: 8),
+        Icon(CupertinoIcons.checkmark_circle_fill, size: 13, color: WrenflowStyle.green),
+        const SizedBox(width: 4),
+        Text('Granted', style: WrenflowStyle.body(12).copyWith(color: WrenflowStyle.green)),
       ],
+    );
+  }
+
+  Widget _grantButton({required VoidCallback onTap}) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        decoration: WrenflowStyle.permissionButtonDecoration,
+        child: Center(
+          child: Text('Grant Access', style: WrenflowStyle.body(12)),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHotkeyStep({Key? key}) {
+    return _StepContent(
+      key: key,
+      icon: CupertinoIcons.keyboard,
+      title: 'Hotkey',
+      subtitle: 'Hold to record, release to transcribe and paste.',
+      child: Column(
+        children: _hotkeyOptions.entries.map((entry) {
+          final isSelected = _selectedHotkey == entry.key;
+          return GestureDetector(
+            onTap: () => setState(() => _selectedHotkey = entry.key),
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 7, horizontal: 10),
+              margin: const EdgeInsets.only(bottom: 4),
+              decoration: BoxDecoration(
+                color: isSelected ? WrenflowStyle.textOp05 : Colors.transparent,
+                borderRadius: BorderRadius.circular(7),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    isSelected
+                        ? CupertinoIcons.checkmark_circle_fill
+                        : CupertinoIcons.circle,
+                    size: 13,
+                    color: isSelected
+                        ? WrenflowStyle.text
+                        : WrenflowStyle.textTertiary,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(entry.value, style: WrenflowStyle.body(12)),
+                ],
+              ),
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  Widget _buildVocabularyStep({Key? key}) {
+    return _StepContent(
+      key: key,
+      icon: CupertinoIcons.textformat_abc,
+      title: 'Vocabulary',
+      subtitle: 'Add names or terms to improve recognition.',
+      child: Container(
+        height: 48,
+        decoration: BoxDecoration(
+          color: WrenflowStyle.bg,
+          borderRadius: BorderRadius.circular(7),
+          border: Border.all(color: WrenflowStyle.border, width: 1),
+        ),
+        child: TextField(
+          controller: _vocabularyController,
+          maxLines: null,
+          expands: true,
+          style: WrenflowStyle.mono(11),
+          decoration: const InputDecoration(
+            border: InputBorder.none,
+            contentPadding: EdgeInsets.all(8),
+            hintText: 'One per line...',
+            hintStyle: TextStyle(
+              fontFamily: 'Menlo',
+              fontSize: 11,
+              color: Color.fromRGBO(153, 153, 153, 1.0),
+            ),
+            isDense: true,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCompleteStep({Key? key}) {
+    return _StepContent(
+      key: key,
+      icon: CupertinoIcons.checkmark_seal_fill,
+      title: 'Ready',
+      subtitle: 'Hold your hotkey to record, release to transcribe.',
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text('Launch at login', style: WrenflowStyle.body(12)),
+          GreenToggle(
+            value: _launchAtLogin,
+            onChanged: (v) => setState(() => _launchAtLogin = v),
+          ),
+        ],
       ),
     );
   }
 }
 
-/// Small badge that shows "Granted" with a checkmark.
-class _PermissionBadge extends StatelessWidget {
-  const _PermissionBadge.granted();
+// ── Shared step layout ────────────────────────────────────────
+
+class _StepContent extends StatelessWidget {
+  const _StepContent({
+    super.key,
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.child,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final Widget child;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      decoration: BoxDecoration(
-        color: const Color(0xFF34C759).withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: const Row(
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(CupertinoIcons.checkmark_circle_fill,
-              size: 16, color: Color(0xFF34C759)),
-          SizedBox(width: 6),
-          Text(
-            'Granted',
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              color: Color(0xFF34C759),
+          const SizedBox(height: 24),
+
+          // Icon circle
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: WrenflowStyle.textOp05,
+              shape: BoxShape.circle,
             ),
+            child: Icon(icon, size: 17, color: WrenflowStyle.textOp70),
           ),
+          const SizedBox(height: 10),
+
+          // Title
+          Text(title, style: WrenflowStyle.title(16)),
+          const SizedBox(height: 4),
+
+          // Subtitle
+          Text(
+            subtitle,
+            textAlign: TextAlign.center,
+            style: WrenflowStyle.caption(12),
+          ),
+          const SizedBox(height: 14),
+
+          // Content
+          child,
+
+          const SizedBox(height: 20),
         ],
+      ),
+    );
+  }
+}
+
+// ── Footer button ─────────────────────────────────────────────
+
+class _FooterButton extends StatelessWidget {
+  const _FooterButton({required this.label, required this.onTap});
+
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
+        decoration: WrenflowStyle.footerButtonDecoration,
+        child: Text(label, style: WrenflowStyle.body(12)),
       ),
     );
   }

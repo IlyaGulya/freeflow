@@ -7,6 +7,9 @@ import 'package:rinf/rinf.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:wrenflow/providers/settings_provider.dart';
 import 'package:wrenflow/src/bindings/signals/signals.dart';
+import 'package:wrenflow/theme/wrenflow_theme.dart';
+import 'package:wrenflow/widgets/green_toggle.dart';
+import 'package:wrenflow/widgets/settings_card.dart';
 
 /// Available hotkey options for the push-to-talk trigger.
 const _hotkeyOptions = <String, String>{
@@ -15,7 +18,17 @@ const _hotkeyOptions = <String, String>{
   'f5': 'F5',
 };
 
-/// Settings screen with General and About tabs.
+/// Sidebar tab definition.
+enum _SettingsTab {
+  general(CupertinoIcons.gear, 'General'),
+  about(CupertinoIcons.info, 'About');
+
+  const _SettingsTab(this.icon, this.label);
+  final IconData icon;
+  final String label;
+}
+
+/// Settings screen — 720×520, sidebar + content layout.
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
 
@@ -24,84 +37,131 @@ class SettingsScreen extends ConsumerStatefulWidget {
 }
 
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
-  int _selectedTab = 0;
+  _SettingsTab _selectedTab = _SettingsTab.general;
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F5F7),
-      body: Column(
+      backgroundColor: WrenflowStyle.bg,
+      body: Row(
         children: [
-          _buildTabBar(),
+          // Sidebar
+          _buildSidebar(),
+
+          // Divider
+          Container(width: 0.5, color: WrenflowStyle.border),
+
+          // Content
           Expanded(
-            child: _selectedTab == 0
-                ? const _GeneralTab()
-                : const _AboutTab(),
+            child: _selectedTab == _SettingsTab.general
+                ? const _GeneralContent()
+                : const _AboutContent(),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildTabBar() {
-    return Container(
-      padding: const EdgeInsets.only(top: 12, bottom: 8),
-      decoration: const BoxDecoration(
-        border: Border(
-          bottom: BorderSide(color: Color(0xFFE0E0E0), width: 0.5),
-        ),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          _buildTab(0, CupertinoIcons.gear, 'General'),
-          const SizedBox(width: 24),
-          _buildTab(1, CupertinoIcons.info, 'About'),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildTab(int index, IconData icon, String label) {
-    final isSelected = _selectedTab == index;
-    return GestureDetector(
-      onTap: () => setState(() => _selectedTab = index),
+  Widget _buildSidebar() {
+    return SizedBox(
+      width: 150,
       child: Column(
-        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          Icon(
-            icon,
-            size: 24,
-            color: isSelected
-                ? CupertinoColors.activeBlue
-                : CupertinoColors.secondaryLabel,
-          ),
-          const SizedBox(height: 4),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-              color: isSelected
-                  ? CupertinoColors.activeBlue
-                  : CupertinoColors.secondaryLabel,
+          // Traffic light inset
+          const SizedBox(height: 28),
+
+          // App icon
+          Opacity(
+            opacity: 0.6,
+            child: Image.asset(
+              'assets/icon.png',
+              width: 64,
+              height: 64,
+              errorBuilder: (_, __, ___) => Icon(
+                CupertinoIcons.waveform,
+                size: 40,
+                color: WrenflowStyle.textOp60,
+              ),
             ),
           ),
+          const SizedBox(height: 8),
+
+          // App name
+          Text('Wrenflow', style: WrenflowStyle.body(12)),
+          const SizedBox(height: 2),
+
+          // Version
+          Text(
+            'v1.0.0',
+            style: WrenflowStyle.mono(10).copyWith(
+              color: WrenflowStyle.textTertiary,
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          // Divider
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Container(height: 0.5, color: WrenflowStyle.border),
+          ),
+          const SizedBox(height: 8),
+
+          // Tab buttons
+          for (final tab in _SettingsTab.values)
+            _buildTabButton(tab),
+
+          const Spacer(),
         ],
+      ),
+    );
+  }
+
+  Widget _buildTabButton(_SettingsTab tab) {
+    final isSelected = _selectedTab == tab;
+    return GestureDetector(
+      onTap: () => setState(() => _selectedTab = tab),
+      child: Container(
+        width: double.infinity,
+        margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 1),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: isSelected ? WrenflowStyle.textOp07 : Colors.transparent,
+          borderRadius: BorderRadius.circular(WrenflowStyle.radiusSmall),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              tab.icon,
+              size: 11,
+              color: isSelected ? WrenflowStyle.text : WrenflowStyle.textTertiary,
+            ),
+            const SizedBox(width: 6),
+            Text(
+              tab.label,
+              style: WrenflowStyle.body(13).copyWith(
+                color: isSelected
+                    ? WrenflowStyle.text
+                    : WrenflowStyle.textSecondary,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 }
 
-/// General settings tab with all configurable options.
-class _GeneralTab extends ConsumerStatefulWidget {
-  const _GeneralTab();
+// ── General tab content ──────────────────────────────────────
+
+class _GeneralContent extends ConsumerStatefulWidget {
+  const _GeneralContent();
 
   @override
-  ConsumerState<_GeneralTab> createState() => _GeneralTabState();
+  ConsumerState<_GeneralContent> createState() => _GeneralContentState();
 }
 
-class _GeneralTabState extends ConsumerState<_GeneralTab> {
+class _GeneralContentState extends ConsumerState<_GeneralContent> {
   late TextEditingController _vocabularyController;
   Timer? _vocabularyDebounce;
   List<AudioDeviceInfo> _audioDevices = [];
@@ -114,17 +174,13 @@ class _GeneralTabState extends ConsumerState<_GeneralTab> {
     _vocabularyController =
         TextEditingController(text: settings.customVocabulary);
 
-    // Listen for audio device list responses from Rust.
     _deviceSubscription =
         AudioDevicesListed.rustSignalStream.listen((signal) {
       if (mounted) {
-        setState(() {
-          _audioDevices = signal.message.devices;
-        });
+        setState(() => _audioDevices = signal.message.devices);
       }
     });
 
-    // Request the device list from Rust.
     const ListAudioDevices().sendSignalToRust();
   }
 
@@ -147,329 +203,293 @@ class _GeneralTabState extends ConsumerState<_GeneralTab> {
   Widget build(BuildContext context) {
     final settings = ref.watch(settingsProvider);
 
-    return ListView(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
-      children: [
-        _buildSectionHeader('Recording'),
-        const SizedBox(height: 8),
-        _buildCard([
-          _buildHotkeyRow(settings),
-          _buildDivider(),
-          _buildMicrophoneRow(settings),
-          _buildDivider(),
-          _buildSoundEffectsRow(settings),
-          _buildDivider(),
-          _buildMinDurationRow(settings),
-        ]),
-        const SizedBox(height: 24),
-        _buildSectionHeader('Transcription'),
-        const SizedBox(height: 8),
-        _buildCard([
-          _buildVocabularyRow(),
-        ]),
-      ],
-    );
-  }
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Hotkey card
+          SettingsCard(
+            title: 'Push-to-talk key',
+            child: _buildHotkeyOptions(settings),
+          ),
+          const SizedBox(height: 16),
 
-  Widget _buildSectionHeader(String title) {
-    return Padding(
-      padding: const EdgeInsets.only(left: 4),
-      child: Text(
-        title,
-        style: const TextStyle(
-          fontSize: 13,
-          fontWeight: FontWeight.w600,
-          color: Color(0xFF6E6E73),
-        ),
-      ),
-    );
-  }
+          // Microphone card
+          SettingsCard(
+            title: 'Microphone',
+            child: _buildMicrophoneDropdown(settings),
+          ),
+          const SizedBox(height: 16),
 
-  Widget _buildCard(List<Widget> children) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(10),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x0F000000),
-            blurRadius: 1,
-            offset: Offset(0, 1),
+          // Sound effects card
+          SettingsCard(
+            title: 'Sound effects',
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('Play sounds', style: WrenflowStyle.body(12)),
+                GreenToggle(
+                  value: settings.soundEnabled,
+                  onChanged: (v) =>
+                      ref.read(settingsProvider.notifier).setSoundEnabled(v),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+
+          // Min duration card
+          SettingsCard(
+            title: 'Minimum recording duration',
+            child: _buildDurationSlider(settings),
+          ),
+          const SizedBox(height: 16),
+
+          // Vocabulary card
+          SettingsCard(
+            title: 'Custom vocabulary',
+            child: _buildVocabularyField(),
           ),
         ],
       ),
-      child: Column(children: children),
     );
   }
 
-  Widget _buildDivider() {
-    return const Padding(
-      padding: EdgeInsets.only(left: 16),
-      child: Divider(height: 0.5, thickness: 0.5, color: Color(0xFFE8E8E8)),
+  Widget _buildHotkeyOptions(AppSettings settings) {
+    return Column(
+      children: _hotkeyOptions.entries.map((entry) {
+        final isSelected = settings.selectedHotkey == entry.key;
+        return GestureDetector(
+          onTap: () =>
+              ref.read(settingsProvider.notifier).setSelectedHotkey(entry.key),
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 7, horizontal: 10),
+            margin: const EdgeInsets.only(bottom: 2),
+            decoration: BoxDecoration(
+              color:
+                  isSelected ? WrenflowStyle.textOp05 : Colors.transparent,
+              borderRadius: BorderRadius.circular(7),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  isSelected
+                      ? CupertinoIcons.checkmark_circle_fill
+                      : CupertinoIcons.circle,
+                  size: 13,
+                  color: isSelected
+                      ? WrenflowStyle.text
+                      : WrenflowStyle.textTertiary,
+                ),
+                const SizedBox(width: 8),
+                Text(entry.value, style: WrenflowStyle.body(12)),
+              ],
+            ),
+          ),
+        );
+      }).toList(),
     );
   }
 
-  Widget _buildHotkeyRow(AppSettings settings) {
-    return _buildRow(
-      label: 'Push-to-talk key',
-      trailing: _buildDropdown<String>(
-        value: settings.selectedHotkey,
-        items: _hotkeyOptions.entries
-            .map(
-                (e) => DropdownMenuItem(value: e.key, child: Text(e.value)))
-            .toList(),
-        onChanged: (value) {
-          if (value != null) {
-            ref.read(settingsProvider.notifier).setSelectedHotkey(value);
-          }
-        },
-      ),
-    );
-  }
-
-  Widget _buildMicrophoneRow(AppSettings settings) {
-    // Build the device list. Always include a "System Default" option.
-    final items = <DropdownMenuItem<String>>[
-      const DropdownMenuItem(
-          value: 'default', child: Text('System Default')),
+  Widget _buildMicrophoneDropdown(AppSettings settings) {
+    final items = <_DropdownItem>[
+      const _DropdownItem('default', 'System Default'),
       for (final device in _audioDevices)
-        DropdownMenuItem(value: device.id, child: Text(device.name)),
+        _DropdownItem(device.id, device.name),
     ];
 
-    // Ensure the currently selected ID exists in the list; fall back to
-    // 'default' if the device was removed (e.g. unplugged).
     final effectiveId =
         items.any((i) => i.value == settings.selectedMicrophoneId)
             ? settings.selectedMicrophoneId
             : 'default';
 
-    return _buildRow(
-      label: 'Microphone',
-      trailing: _buildDropdown<String>(
-        value: effectiveId,
-        items: items,
-        onChanged: (value) {
-          if (value != null) {
-            ref
-                .read(settingsProvider.notifier)
-                .setSelectedMicrophoneId(value);
-          }
-        },
-      ),
-    );
-  }
-
-  Widget _buildSoundEffectsRow(AppSettings settings) {
-    return _buildRow(
-      label: 'Sound effects',
-      trailing: CupertinoSwitch(
-        value: settings.soundEnabled,
-        onChanged: (value) {
-          ref.read(settingsProvider.notifier).setSoundEnabled(value);
-        },
-      ),
-    );
-  }
-
-  Widget _buildMinDurationRow(AppSettings settings) {
-    final durationMs = settings.minimumRecordingDurationMs;
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text(
-                'Minimum recording duration',
-                style: TextStyle(fontSize: 13),
-              ),
-              Text(
-                '${durationMs.round()} ms',
-                style: const TextStyle(
-                  fontSize: 13,
-                  color: Color(0xFF8E8E93),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          SliderTheme(
-            data: SliderThemeData(
-              activeTrackColor: CupertinoColors.activeBlue,
-              inactiveTrackColor: const Color(0xFFE0E0E0),
-              thumbColor: Colors.white,
-              overlayColor:
-                  CupertinoColors.activeBlue.withValues(alpha: 0.12),
-              trackHeight: 4,
-              thumbShape:
-                  const RoundSliderThumbShape(enabledThumbRadius: 8),
-            ),
-            child: Slider(
-              value: durationMs,
-              min: 100,
-              max: 1000,
-              divisions: 18, // 50ms steps
-              onChanged: (value) {
-                ref
-                    .read(settingsProvider.notifier)
-                    .setMinimumRecordingDurationMs(value);
-              },
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildVocabularyRow() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Custom vocabulary',
-            style: TextStyle(fontSize: 13),
-          ),
-          const SizedBox(height: 4),
-          const Text(
-            'Words or phrases to improve recognition accuracy, '
-            'one per line.',
-            style: TextStyle(fontSize: 11, color: Color(0xFF8E8E93)),
-          ),
-          const SizedBox(height: 8),
-          CupertinoTextField(
-            controller: _vocabularyController,
-            maxLines: 5,
-            minLines: 3,
-            placeholder: 'e.g.\nWrenflow\nRiverpod',
-            onChanged: _onVocabularyChanged,
-            padding: const EdgeInsets.all(10),
-            style: const TextStyle(fontSize: 13),
+    return Column(
+      children: items.map((item) {
+        final isSelected = effectiveId == item.value;
+        return GestureDetector(
+          onTap: () => ref
+              .read(settingsProvider.notifier)
+              .setSelectedMicrophoneId(item.value),
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 7, horizontal: 10),
+            margin: const EdgeInsets.only(bottom: 2),
             decoration: BoxDecoration(
-              color: const Color(0xFFF5F5F7),
-              borderRadius: BorderRadius.circular(6),
-              border: Border.all(color: const Color(0xFFD1D1D6)),
+              color:
+                  isSelected ? WrenflowStyle.textOp05 : Colors.transparent,
+              borderRadius: BorderRadius.circular(7),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  isSelected
+                      ? CupertinoIcons.checkmark_circle_fill
+                      : CupertinoIcons.circle,
+                  size: 13,
+                  color: isSelected
+                      ? WrenflowStyle.text
+                      : WrenflowStyle.textTertiary,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    item.label,
+                    style: WrenflowStyle.body(12),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
             ),
           ),
-        ],
-      ),
+        );
+      }).toList(),
     );
   }
 
-  Widget _buildRow({required String label, required Widget trailing}) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(label, style: const TextStyle(fontSize: 13)),
-          trailing,
-        ],
-      ),
-    );
-  }
-
-  Widget _buildDropdown<T>({
-    required T value,
-    required List<DropdownMenuItem<T>> items,
-    required ValueChanged<T?> onChanged,
-  }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF5F5F7),
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: const Color(0xFFD1D1D6)),
-      ),
-      child: DropdownButtonHideUnderline(
-        child: DropdownButton<T>(
-          value: value,
-          items: items,
-          onChanged: onChanged,
-          isDense: true,
-          style: const TextStyle(fontSize: 13, color: Colors.black87),
-          icon: const Icon(CupertinoIcons.chevron_down, size: 12),
+  Widget _buildDurationSlider(AppSettings settings) {
+    final durationMs = settings.minimumRecordingDurationMs;
+    return Column(
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text('Duration', style: WrenflowStyle.body(12)),
+            Text(
+              '${durationMs.round()} ms',
+              style: WrenflowStyle.mono(10).copyWith(
+                color: WrenflowStyle.textTertiary,
+              ),
+            ),
+          ],
         ),
-      ),
+        const SizedBox(height: 8),
+        SliderTheme(
+          data: SliderThemeData(
+            activeTrackColor: WrenflowStyle.trackFill,
+            inactiveTrackColor: WrenflowStyle.trackBg,
+            thumbColor: Colors.white,
+            overlayColor: WrenflowStyle.textOp10,
+            trackHeight: 3,
+            thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 7),
+          ),
+          child: Slider(
+            value: durationMs,
+            min: 100,
+            max: 1000,
+            divisions: 18,
+            onChanged: (value) => ref
+                .read(settingsProvider.notifier)
+                .setMinimumRecordingDurationMs(value),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildVocabularyField() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Words or phrases to improve recognition, one per line.',
+          style: WrenflowStyle.caption(11),
+        ),
+        const SizedBox(height: 8),
+        Container(
+          height: 64,
+          decoration: BoxDecoration(
+            color: WrenflowStyle.bg,
+            borderRadius: BorderRadius.circular(7),
+            border: Border.all(color: WrenflowStyle.border, width: 1),
+          ),
+          child: TextField(
+            controller: _vocabularyController,
+            maxLines: null,
+            expands: true,
+            onChanged: _onVocabularyChanged,
+            style: WrenflowStyle.mono(11),
+            decoration: const InputDecoration(
+              border: InputBorder.none,
+              contentPadding: EdgeInsets.all(8),
+              hintText: 'e.g.\nWrenflow\nRiverpod',
+              hintStyle: TextStyle(
+                fontFamily: 'Menlo',
+                fontSize: 11,
+                color: Color.fromRGBO(153, 153, 153, 1.0),
+              ),
+              isDense: true,
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
 
-/// About tab showing app version and project link.
-class _AboutTab extends StatelessWidget {
-  const _AboutTab();
+class _DropdownItem {
+  const _DropdownItem(this.value, this.label);
+  final String value;
+  final String label;
+}
+
+// ── About tab content ────────────────────────────────────────
+
+class _AboutContent extends StatelessWidget {
+  const _AboutContent();
 
   static const _githubUrl = 'https://github.com/nichochar/wrenflow';
 
   @override
   Widget build(BuildContext context) {
     return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // App icon placeholder
-            Container(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Opacity(
+            opacity: 0.6,
+            child: Image.asset(
+              'assets/icon.png',
               width: 64,
               height: 64,
-              decoration: BoxDecoration(
-                color: const Color(0xFF5856D6),
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: const Icon(
+              errorBuilder: (_, __, ___) => Icon(
                 CupertinoIcons.waveform,
-                color: Colors.white,
-                size: 32,
+                size: 40,
+                color: WrenflowStyle.textOp60,
               ),
             ),
-            const SizedBox(height: 16),
-            const Text(
-              'Wrenflow',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.w600,
+          ),
+          const SizedBox(height: 12),
+          Text('Wrenflow', style: WrenflowStyle.title(16)),
+          const SizedBox(height: 4),
+          Text(
+            'v1.0.0',
+            style: WrenflowStyle.mono(10).copyWith(
+              color: WrenflowStyle.textTertiary,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Hold a key to record, release to transcribe.',
+            style: WrenflowStyle.caption(12),
+          ),
+          const SizedBox(height: 20),
+          GestureDetector(
+            onTap: () async {
+              final uri = Uri.parse(_githubUrl);
+              if (await canLaunchUrl(uri)) await launchUrl(uri);
+            },
+            child: Text(
+              'View on GitHub',
+              style: WrenflowStyle.body(12).copyWith(
+                color: WrenflowStyle.textOp50,
+                decoration: TextDecoration.underline,
               ),
             ),
-            const SizedBox(height: 4),
-            const Text(
-              'Version 1.0.0',
-              style: TextStyle(
-                fontSize: 13,
-                color: Color(0xFF8E8E93),
-              ),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Hold a key to record, release to transcribe.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 13,
-                color: Color(0xFF8E8E93),
-              ),
-            ),
-            const SizedBox(height: 24),
-            CupertinoButton(
-              padding: EdgeInsets.zero,
-              onPressed: () => _openGitHub(),
-              child: const Text(
-                'View on GitHub',
-                style: TextStyle(fontSize: 13),
-              ),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
-  }
-
-  static Future<void> _openGitHub() async {
-    final uri = Uri.parse(_githubUrl);
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri);
-    }
   }
 }
