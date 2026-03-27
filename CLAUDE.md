@@ -1,53 +1,48 @@
 # Wrenflow
 
-macOS menu bar app for speech-to-text dictation. Hold a key to record, release to transcribe.
+Cross-platform menu bar app for speech-to-text dictation. Hold a key to record, release to transcribe locally via Parakeet.
 
 ## Build & Run
 
+All tools managed via mise. Run `mise install` first.
+
 ```bash
-just build  # Build debug .app bundle (Rust → UniFFI → Swift → Bundle → codesign)
-just run    # Build, kill running instance, and (re)launch the app
-just clean  # Remove build/ and .build/
-just dmg    # Build + create DMG installer
+mise run build     # Generate bindings + XcodeGen + Flutter build macOS debug
+mise run run       # Same + launch the app
+mise run release   # Release build
+mise run clean     # Remove all build artifacts
+mise tasks         # List all available tasks
 ```
 
-`just run` automatically kills any running Wrenflow instance before launching, so it always starts fresh.
-
-The app is built as `build/Wrenflow Debug.app` via justfile (Rust + Swift Package Manager).
-Do NOT run the binary directly from `.build/debug/Wrenflow` — always use `just run` (or `open "build/Wrenflow Debug.app"`).
-
-## Project Structure
-
-- `Sources/` — all Swift source files (flat, no subdirectories)
-- `Resources/` — app icon source
-- `Package.swift` — SPM manifest
-- `justfile` — builds .app bundle, codesigns, creates DMG
-- `Info.plist`, `Wrenflow.entitlements` — app metadata
-
-### Key Files
-- `AppState.swift` — central state, `@Published` properties, transcription pipeline
-- `AppDelegate.swift` — app lifecycle, setup wizard flow, menu bar setup
-- `SetupView.swift` — onboarding wizard (multi-step)
-- `SettingsView.swift` — settings window
-- `LocalTranscriptionService.swift` — on-device Parakeet transcription
-- `TranscriptionService.swift` — Groq (Whisper) cloud transcription
-- `HotkeyManager.swift` — global hotkey monitoring
+## Key Architecture Decisions
+- **Flutter + Rust via rinf**: Dart for UI, Rust for all heavy logic (audio, transcription, hotkeys, paste)
+- **Local-only transcription**: Parakeet TDT (on-device), no cloud APIs
+- **raw-input crate**: CGEventTap for global hotkeys (replaces rdev which crashed on macOS)
+- **Rinf signals**: Typed async message passing between Dart and Rust (no UniFFI)
+- **XcodeGen**: project.yml generates xcodeproj (no manual pbxproj editing)
+- **CocoaPods**: Required by rinf (SPM not yet supported by rinf)
 
 ## Data Storage
 
-- Debug app SQLite: `~/Library/Application Support/Wrenflow Debug/PipelineHistory.sqlite`
-- Release app SQLite: `~/Library/Application Support/Wrenflow/PipelineHistory.sqlite`
-- CoreData uses `Z`-prefixed tables (e.g. `ZPIPELINEHISTORYENTRY`) and `Z`-prefixed columns (e.g. `ZMETRICSJSON`)
-- Pipeline metrics stored as JSON in `metricsJSON` column via `PipelineMetrics` (Codable)
+- SQLite history: `~/Library/Application Support/wrenflow/history.sqlite`
+- Parakeet model: `~/Library/Application Support/wrenflow/models/parakeet-tdt/`
+- Crash log: `~/Library/Application Support/wrenflow/crash.log`
+- Settings: Flutter shared_preferences (NSUserDefaults on macOS)
 
-## Architecture Notes
+## Code Signing
 
-- SwiftUI app with `@EnvironmentObject` AppState
-- Two transcription providers: Local (Parakeet via FluidAudio) and Groq (Whisper API)
-- `TranscriptionProvider` enum in `AppState.swift`
-- `localTranscriptionService.initialize()` downloads the model — only call after user explicitly chooses local transcription
-- Setup wizard state managed via `SetupStep` enum with rawValue-based navigation
+- Identity: `Developer ID Application: Ilya Gulya (T4LV8K9BGV)`
+- Bundle ID: `me.gulya.wrenflow`
+- Entitlements: audio-input, no sandbox (accessibility + hotkeys need it off)
 
+## Design System
+
+Original Swift app style (WrenflowStyle) ported to Flutter:
+- Background: warm off-white `rgb(245,245,245)`
+- Surface: `rgb(252,252,252)` with subtle borders `rgba(0,0,0,0.08)`
+- Text: dark gray `rgb(38,38,38)`, secondary `rgb(115,115,115)`
+- Cards: 12pt radius, soft shadow `black 8% blur 24 offset-y 8`
+- Setup wizard: borderless floating card, no window chrome
 
 <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:b9766037 -->
 ## Beads Issue Tracker
