@@ -2,6 +2,7 @@
 //! Communicates with Flutter/Dart via rinf signals.
 
 mod actors;
+mod logging;
 pub mod signals;
 
 use actors::create_actors;
@@ -12,8 +13,11 @@ write_interface!();
 
 #[tokio::main(flavor = "multi_thread", worker_threads = 2)]
 async fn main() {
-    // Initialize logging
-    env_logger::init();
+    // Initialize logging + panic hook (visible in `flutter run`)
+    logging::init_logging();
+    logging::install_panic_hook();
+
+    log::info!("Wrenflow Rust hub starting");
 
     // Spawn the actor system
     spawn(create_actors());

@@ -24,10 +24,10 @@ pub async fn create_actors() {
 
     let mut pipeline = PipelineActor::new();
     let mut audio = AudioActor::new();
-    // TODO: rdev::listen crashes on macOS when called from non-main thread
-    // (dispatch_assert_queue_fail in TSMGetInputSourceProperty).
-    // Need to either run on main thread or use CGEventTap directly.
-    // let mut hotkey = HotkeyActor::new("fn");
+    // TODO: rdev::listen causes SIGTRAP (not a Rust panic) on macOS from non-main thread.
+    // dispatch_assert_queue_fail in TSMGetInputSourceProperty — system abort, not catchable.
+    // Need to use CGEventTap directly on main RunLoop instead of rdev.
+    // let _hotkey = HotkeyActor::new("fn");
 
     // History actor — owns SQLite store on its own thread (Connection is !Send)
     let history_path = history_actor::default_history_path();
