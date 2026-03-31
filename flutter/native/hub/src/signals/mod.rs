@@ -168,6 +168,7 @@ pub struct CancelModelDownload;
 #[derive(Serialize, RustSignal)]
 pub struct AudioDevicesListed {
     pub devices: Vec<AudioDeviceInfo>,
+    pub default_device_name: String,
 }
 
 #[derive(Deserialize, DartSignal)]

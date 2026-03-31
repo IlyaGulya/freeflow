@@ -29,7 +29,7 @@ pub async fn create_actors() {
 
     let mut pipeline = PipelineActor::new();
     let mut audio = AudioActor::new();
-    let mut hotkey = HotkeyActor::new("rightOption");
+    let mut hotkey = HotkeyActor::new(hotkey_actor::keycode_from_name("rightOption"));
 
     // History actor
     let history_path = history_actor::default_history_path();
@@ -55,7 +55,8 @@ pub async fn create_actors() {
         let recv = signals::ListAudioDevices::get_dart_signal_receiver();
         while let Some(_) = recv.recv().await {
             let devices = AudioActor::list_devices();
-            signals::AudioDevicesListed { devices }.send_signal_to_dart();
+            let default_name = AudioActor::default_device_name();
+            signals::AudioDevicesListed { devices, default_device_name: default_name }.send_signal_to_dart();
         }
     });
 
@@ -162,6 +163,8 @@ pub async fn create_actors() {
                     }
                 }
                 Some(pack) = config_recv.recv() => {
+                    let kc = hotkey_actor::keycode_from_name(&pack.message.selected_hotkey);
+                    hotkey.set_keycode(kc);
                     pipeline.handle_config_update(pack.message);
                 }
                 else => break,

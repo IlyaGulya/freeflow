@@ -1,16 +1,15 @@
 //! Hotkey actor — listens for global key events via raw-input (CGEventTap on macOS).
 //! No TIS/TSM calls — uses raw virtual keycodes only. Safe on background threads.
+//! Target keycode can be changed at runtime via `set_keycode()`.
 
 use raw_input::{Core, Event, Listen};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::mpsc;
 
-/// macOS virtual keycodes for supported hotkeys.
-const KEYCODE_FN: u32 = 63;
-const KEYCODE_RIGHT_OPTION: u32 = 61;
-const KEYCODE_F5: u32 = 96;
+/// Default keycode: Right Option (61 on macOS).
+const DEFAULT_KEYCODE: u32 = 61;
 
 #[derive(Debug)]
 pub enum HotkeyEvent {
@@ -20,11 +19,12 @@ pub enum HotkeyEvent {
 
 pub struct HotkeyActor {
     event_rx: mpsc::UnboundedReceiver<HotkeyEvent>,
+    target_keycode: Arc<AtomicU32>,
 }
 
 impl HotkeyActor {
-    pub fn new(hotkey_name: &str) -> Self {
-        let target_keycode = keycode_from_name(hotkey_name);
+    pub fn new(keycode: u32) -> Self {
+        let target_keycode = Arc::new(AtomicU32::new(keycode));
         let (event_tx, event_rx) = mpsc::unbounded_channel();
 
         let is_pressed = Arc::new(AtomicBool::new(false));
@@ -50,20 +50,22 @@ impl HotkeyActor {
         Listen::mouse_wheel(false);
         Listen::start();
 
+        let kc = target_keycode.clone();
         let pressed = is_pressed;
         let time = press_time;
         let tx = event_tx;
 
         Listen::subscribe(move |event| {
+            let target = kc.load(Ordering::Relaxed);
             match event {
                 Event::KeyDown { code, .. } => {
-                    if code == Some(target_keycode) && !pressed.swap(true, Ordering::Relaxed) {
+                    if code == Some(target) && !pressed.swap(true, Ordering::Relaxed) {
                         *time.lock().unwrap_or_else(|e| e.into_inner()) = Some(Instant::now());
                         let _ = tx.send(HotkeyEvent::KeyDown);
                     }
                 }
                 Event::KeyUp { code, .. } => {
-                    if code == Some(target_keycode) && pressed.swap(false, Ordering::Relaxed) {
+                    if code == Some(target) && pressed.swap(false, Ordering::Relaxed) {
                         let duration_ms = time
                             .lock()
                             .unwrap_or_else(|e| e.into_inner())
@@ -77,9 +79,20 @@ impl HotkeyActor {
             }
         });
 
-        log::info!("Hotkey listener started (keycode={target_keycode})");
+        log::info!("Hotkey listener started (keycode={keycode})");
 
-        Self { event_rx }
+        Self {
+            event_rx,
+            target_keycode,
+        }
+    }
+
+    /// Change the target keycode at runtime.
+    pub fn set_keycode(&self, keycode: u32) {
+        let old = self.target_keycode.swap(keycode, Ordering::Relaxed);
+        if old != keycode {
+            log::info!("Hotkey changed: {old} → {keycode}");
+        }
     }
 
     pub async fn recv(&mut self) -> Option<HotkeyEvent> {
@@ -87,11 +100,15 @@ impl HotkeyActor {
     }
 }
 
-fn keycode_from_name(name: &str) -> u32 {
+/// Convert legacy hotkey name to keycode (for backward compatibility with saved prefs).
+pub fn keycode_from_name(name: &str) -> u32 {
     match name {
-        "fn" | "fnKey" => KEYCODE_FN,
-        "rightOption" => KEYCODE_RIGHT_OPTION,
-        "f5" => KEYCODE_F5,
-        _ => KEYCODE_FN,
+        "fn" | "fnKey" => 63,
+        "rightOption" => 61,
+        "f5" => 96,
+        _ => {
+            // Try parsing as numeric keycode
+            name.parse::<u32>().unwrap_or(DEFAULT_KEYCODE)
+        }
     }
 }

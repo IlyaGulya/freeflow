@@ -9,14 +9,9 @@ import 'package:wrenflow/providers/settings_provider.dart';
 import 'package:wrenflow/src/bindings/signals/signals.dart';
 import 'package:wrenflow/theme/wrenflow_theme.dart';
 import 'package:wrenflow/widgets/green_toggle.dart';
+import 'package:wrenflow/widgets/hotkey_capture.dart';
 import 'package:wrenflow/widgets/settings_card.dart';
 
-/// Available hotkey options for the push-to-talk trigger.
-const _hotkeyOptions = <String, String>{
-  'fn': 'Fn',
-  'rightOption': 'Right Option',
-  'f5': 'F5',
-};
 
 /// Sidebar tab definition.
 enum _SettingsTab {
@@ -165,6 +160,7 @@ class _GeneralContentState extends ConsumerState<_GeneralContent> {
   late TextEditingController _vocabularyController;
   Timer? _vocabularyDebounce;
   List<AudioDeviceInfo> _audioDevices = [];
+  String _defaultDeviceName = '';
   StreamSubscription<RustSignalPack<AudioDevicesListed>>? _deviceSubscription;
 
   @override
@@ -177,7 +173,10 @@ class _GeneralContentState extends ConsumerState<_GeneralContent> {
     _deviceSubscription =
         AudioDevicesListed.rustSignalStream.listen((signal) {
       if (mounted) {
-        setState(() => _audioDevices = signal.message.devices);
+        setState(() {
+          _audioDevices = signal.message.devices;
+          _defaultDeviceName = signal.message.defaultDeviceName;
+        });
       }
     });
 
@@ -257,45 +256,19 @@ class _GeneralContentState extends ConsumerState<_GeneralContent> {
   }
 
   Widget _buildHotkeyOptions(AppSettings settings) {
-    return Column(
-      children: _hotkeyOptions.entries.map((entry) {
-        final isSelected = settings.selectedHotkey == entry.key;
-        return GestureDetector(
-          onTap: () =>
-              ref.read(settingsProvider.notifier).setSelectedHotkey(entry.key),
-          child: Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(vertical: 7, horizontal: 10),
-            margin: const EdgeInsets.only(bottom: 2),
-            decoration: BoxDecoration(
-              color:
-                  isSelected ? WrenflowStyle.textOp05 : Colors.transparent,
-              borderRadius: BorderRadius.circular(7),
-            ),
-            child: Row(
-              children: [
-                Icon(
-                  isSelected
-                      ? CupertinoIcons.checkmark_circle_fill
-                      : CupertinoIcons.circle,
-                  size: 13,
-                  color: isSelected
-                      ? WrenflowStyle.text
-                      : WrenflowStyle.textTertiary,
-                ),
-                const SizedBox(width: 8),
-                Text(entry.value, style: WrenflowStyle.body(12)),
-              ],
-            ),
-          ),
-        );
-      }).toList(),
+    return HotkeyCapture(
+      currentValue: settings.selectedHotkey,
+      onKeySelected: (value) =>
+          ref.read(settingsProvider.notifier).setSelectedHotkey(value),
     );
   }
 
   Widget _buildMicrophoneDropdown(AppSettings settings) {
+    final defaultLabel = _defaultDeviceName.isNotEmpty
+        ? 'System Default ($_defaultDeviceName)'
+        : 'System Default';
     final items = <_DropdownItem>[
-      const _DropdownItem('default', 'System Default'),
+      _DropdownItem('default', defaultLabel),
       for (final device in _audioDevices)
         _DropdownItem(device.id, device.name),
     ];

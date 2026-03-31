@@ -89,4 +89,9 @@ impl AudioActor {
             })
             .collect()
     }
+
+    /// Get the name of the current system default input device.
+    pub fn default_device_name() -> String {
+        AudioCapture::default_input_device_name()
+    }
 }

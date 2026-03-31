@@ -13,15 +13,10 @@ import '../src/bindings/signals/signals.dart';
 import '../state/app_lifecycle_state.dart';
 import '../theme/wrenflow_theme.dart';
 import '../widgets/green_toggle.dart';
+import '../widgets/hotkey_capture.dart';
 import '../widgets/initializing_dots.dart';
 import '../widgets/waveform_painter.dart';
 
-/// Available hotkey options for the push-to-talk trigger.
-const _hotkeyOptions = <String, String>{
-  'fn': 'Fn',
-  'rightOption': 'Right Option',
-  'f5': 'F5',
-};
 
 /// Setup wizard — used for both onboarding and permission recovery.
 ///
@@ -414,40 +409,9 @@ class _SetupWizardScreenState extends ConsumerState<SetupWizardScreen> {
       icon: CupertinoIcons.keyboard,
       title: 'Hotkey',
       subtitle: 'Hold to record, release to transcribe and paste.',
-      child: Column(
-        children: _hotkeyOptions.entries.map((entry) {
-          final isSelected = _selectedHotkey == entry.key;
-          return GestureDetector(
-            onTap: () => setState(() => _selectedHotkey = entry.key),
-            child: Container(
-              width: double.infinity,
-              padding:
-                  const EdgeInsets.symmetric(vertical: 7, horizontal: 10),
-              margin: const EdgeInsets.only(bottom: 4),
-              decoration: BoxDecoration(
-                color: isSelected
-                    ? WrenflowStyle.textOp05
-                    : Colors.transparent,
-                borderRadius: BorderRadius.circular(7),
-              ),
-              child: Row(
-                children: [
-                  Icon(
-                    isSelected
-                        ? CupertinoIcons.checkmark_circle_fill
-                        : CupertinoIcons.circle,
-                    size: 13,
-                    color: isSelected
-                        ? WrenflowStyle.text
-                        : WrenflowStyle.textTertiary,
-                  ),
-                  const SizedBox(width: 8),
-                  Text(entry.value, style: WrenflowStyle.body(12)),
-                ],
-              ),
-            ),
-          );
-        }).toList(),
+      child: HotkeyCapture(
+        currentValue: _selectedHotkey,
+        onKeySelected: (value) => setState(() => _selectedHotkey = value),
       ),
     );
   }

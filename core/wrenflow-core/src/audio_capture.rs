@@ -150,6 +150,14 @@ impl AudioCapture {
             .collect()
     }
 
+    /// Get the name of the current system default input device.
+    pub fn default_input_device_name() -> String {
+        let host = cpal::default_host();
+        host.default_input_device()
+            .and_then(|d| d.name().ok())
+            .unwrap_or_default()
+    }
+
     /// Pre-resolve the device and stream config so that `start_recording` is fast.
     /// Returns `Ok(())` on success, or an error string.
     pub fn warm_up(&self, device_id: Option<&str>) -> Result<(), String> {

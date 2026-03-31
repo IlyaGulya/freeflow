@@ -21,7 +21,7 @@ class AppSettings {
   const AppSettings({
     this.apiKey = '',
     this.apiBaseUrl = 'https://api.groq.com/openai/v1',
-    this.selectedHotkey = 'rightOption',
+    this.selectedHotkey = '61',
     this.selectedMicrophoneId = 'default',
     this.soundEnabled = true,
     this.customVocabulary = '',
@@ -88,6 +88,16 @@ class SettingsNotifier extends Notifier<AppSettings> {
     return const AppSettings();
   }
 
+  /// Normalize legacy hotkey names to keycode strings.
+  static String _normalizeHotkey(String value) {
+    return switch (value) {
+      'fn' || 'fnKey' => '63',
+      'rightOption' => '61',
+      'f5' => '96',
+      _ => value,
+    };
+  }
+
   /// Load saved settings from shared_preferences.
   Future<void> load() async {
     _prefs = await SharedPreferences.getInstance();
@@ -95,8 +105,8 @@ class SettingsNotifier extends Notifier<AppSettings> {
       apiKey: _prefs!.getString(_SettingsKeys.apiKey) ?? '',
       apiBaseUrl: _prefs!.getString(_SettingsKeys.apiBaseUrl) ??
           'https://api.groq.com/openai/v1',
-      selectedHotkey:
-          _prefs!.getString(_SettingsKeys.selectedHotkey) ?? 'rightOption',
+      selectedHotkey: _normalizeHotkey(
+          _prefs!.getString(_SettingsKeys.selectedHotkey) ?? '61'),
       selectedMicrophoneId:
           _prefs!.getString(_SettingsKeys.selectedMicrophoneId) ?? 'default',
       soundEnabled: _prefs!.getBool(_SettingsKeys.soundEnabled) ?? true,
