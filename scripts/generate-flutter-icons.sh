@@ -20,6 +20,8 @@ fi
 for size in 16 32 64 128 256 512 1024; do
   sips -z "$size" "$size" "$SOURCE" --out "$DEST/app_icon_${size}.png" >/dev/null 2>&1
 done
+# Also copy 128px icon to Flutter assets for use in Settings UI.
+cp "$DEST/app_icon_128.png" "$ROOT/flutter/assets/icon.png"
 echo "App icons generated"
 
 # ── Tray icons (from SVG source) ────────────────────────────────

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
@@ -491,7 +492,6 @@ class _HistoryContentState extends ConsumerState<_HistoryContent> {
                     return _HistoryRow(
                       entry: entry,
                       onDelete: () => _deleteEntry(entry.id),
-                      onTap: () => _showDetail(context, entry),
                     );
                   },
                 ),
@@ -530,38 +530,27 @@ class _HistoryContentState extends ConsumerState<_HistoryContent> {
     );
   }
 
-  void _showDetail(BuildContext context, HistoryEntryData entry) {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Transcription'),
-        content: SingleChildScrollView(
-          child: SelectableText(entry.transcript),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Close'),
-          ),
-        ],
-      ),
-    );
-  }
 }
 
-class _HistoryRow extends StatelessWidget {
+class _HistoryRow extends StatefulWidget {
   const _HistoryRow({
     required this.entry,
     required this.onDelete,
-    required this.onTap,
   });
 
   final HistoryEntryData entry;
   final VoidCallback onDelete;
-  final VoidCallback onTap;
+
+  @override
+  State<_HistoryRow> createState() => _HistoryRowState();
+}
+
+class _HistoryRowState extends State<_HistoryRow> {
+  bool _expanded = false;
 
   @override
   Widget build(BuildContext context) {
+    final entry = widget.entry;
     final date = DateTime.fromMillisecondsSinceEpoch(
       (entry.timestamp * 1000).toInt(),
     );
@@ -570,48 +559,164 @@ class _HistoryRow extends StatelessWidget {
     final dateStr =
         '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
 
+    final metrics = _parseMetrics(entry.metricsJson);
+    final durationBadge = _formatDuration(metrics);
+
     return GestureDetector(
-      onTap: onTap,
-      child: Container(
+      onTap: () => setState(() => _expanded = !_expanded),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           color: WrenflowStyle.surface,
           borderRadius: BorderRadius.circular(WrenflowStyle.radiusMedium),
           border: Border.all(color: WrenflowStyle.border, width: 1),
         ),
-        child: Row(
+        child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    '$dateStr $timeStr',
-                    style: WrenflowStyle.caption(11),
+            // Header row
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Text('$dateStr $timeStr',
+                              style: WrenflowStyle.caption(11)),
+                          if (durationBadge != null) ...[
+                            const SizedBox(width: 6),
+                            _MetricBadge(durationBadge),
+                          ],
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        entry.transcript,
+                        maxLines: _expanded ? null : 2,
+                        overflow:
+                            _expanded ? null : TextOverflow.ellipsis,
+                        style: WrenflowStyle.body(13),
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    entry.transcript,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: WrenflowStyle.body(13),
+                ),
+                const SizedBox(width: 8),
+                Icon(
+                  _expanded
+                      ? CupertinoIcons.chevron_up
+                      : CupertinoIcons.chevron_down,
+                  size: 10,
+                  color: WrenflowStyle.textTertiary,
+                ),
+                const SizedBox(width: 6),
+                GestureDetector(
+                  onTap: widget.onDelete,
+                  child: Icon(
+                    CupertinoIcons.xmark,
+                    size: 12,
+                    color: WrenflowStyle.textTertiary,
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
-            const SizedBox(width: 8),
-            GestureDetector(
-              onTap: onDelete,
-              child: Icon(
-                CupertinoIcons.xmark,
-                size: 12,
-                color: WrenflowStyle.textTertiary,
+
+            // Expanded metrics
+            if (_expanded && metrics.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: WrenflowStyle.bg,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    for (final key in metrics.keys.toList()..sort())
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 3),
+                        child: Row(
+                          children: [
+                            SizedBox(
+                              width: 160,
+                              child: Text(
+                                key,
+                                style: WrenflowStyle.mono(10).copyWith(
+                                  color: WrenflowStyle.textTertiary,
+                                ),
+                              ),
+                            ),
+                            Expanded(
+                              child: Text(
+                                _formatMetricValue(metrics[key]),
+                                style: WrenflowStyle.mono(10).copyWith(
+                                  color: WrenflowStyle.textSecondary,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
               ),
-            ),
+            ],
           ],
         ),
       ),
+    );
+  }
+
+  Map<String, dynamic> _parseMetrics(String json) {
+    if (json.isEmpty || json == '{}') return {};
+    try {
+      final decoded = (const JsonDecoder().convert(json)) as Map<String, dynamic>;
+      return decoded;
+    } catch (_) {
+      return {};
+    }
+  }
+
+  String? _formatDuration(Map<String, dynamic> metrics) {
+    final rec = metrics['recording.durationMs'];
+    if (rec is num && rec > 0) {
+      if (rec >= 1000) {
+        return '${(rec / 1000).toStringAsFixed(1)}s';
+      }
+      return '${rec.round()}ms';
+    }
+    return null;
+  }
+
+  String _formatMetricValue(dynamic value) {
+    if (value is double) {
+      if (value >= 1000) return '${(value / 1000).toStringAsFixed(1)}s';
+      return '${value.toStringAsFixed(1)}ms';
+    }
+    if (value is int) return value.toString();
+    if (value is bool) return value ? 'true' : 'false';
+    return value?.toString() ?? '';
+  }
+}
+
+class _MetricBadge extends StatelessWidget {
+  const _MetricBadge(this.text);
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+      decoration: BoxDecoration(
+        color: WrenflowStyle.textOp07,
+        borderRadius: BorderRadius.circular(3),
+      ),
+      child: Text(text, style: WrenflowStyle.mono(10)),
     );
   }
 }
