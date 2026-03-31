@@ -46,6 +46,25 @@ impl HistoryStore {
                 metrics_json TEXT NOT NULL DEFAULT '{}'
             )"
         )?;
+        // Migrate from old Swift schema: raw_transcript → transcript
+        self.migrate_legacy_schema()?;
+        Ok(())
+    }
+
+    fn migrate_legacy_schema(&self) -> Result<(), HistoryError> {
+        // Check if old `raw_transcript` column exists (Swift-era schema).
+        let has_raw: bool = self.conn.prepare(
+            "SELECT COUNT(*) FROM pragma_table_info('pipeline_history') WHERE name = 'raw_transcript'"
+        )?.query_row([], |row| row.get(0))?;
+
+        if has_raw {
+            // Copy data from old column, add new column, drop via rebuild.
+            self.conn.execute_batch(
+                "ALTER TABLE pipeline_history ADD COLUMN transcript TEXT NOT NULL DEFAULT '';
+                 UPDATE pipeline_history SET transcript = COALESCE(raw_transcript, '')
+                    WHERE transcript = '';"
+            ).ok(); // ALTER may fail if column already exists — that's fine.
+        }
         Ok(())
     }
 

@@ -27,22 +27,25 @@ static SHOULD_PASTE: AtomicBool = AtomicBool::new(false);
 pub async fn create_actors() {
     let engine_handle = model_actor::shared_engine();
 
-    let mut pipeline = PipelineActor::new();
     let mut audio = AudioActor::new();
     let mut hotkey = HotkeyActor::new(hotkey_actor::keycode_from_name("rightOption"));
 
     // History actor
     let history_path = history_actor::default_history_path();
-    match HistoryActor::new(history_path) {
-        Ok(history) => {
+    let history_insert_tx = match HistoryActor::new(history_path) {
+        Ok((history, tx)) => {
             std::thread::spawn(move || {
                 history.run_blocking();
             });
+            Some(tx)
         }
         Err(e) => {
             log::error!("Failed to start history actor: {e}");
+            None
         }
-    }
+    };
+
+    let mut pipeline = PipelineActor::new(history_insert_tx);
 
     // Model actor
     let model_engine = engine_handle.clone();

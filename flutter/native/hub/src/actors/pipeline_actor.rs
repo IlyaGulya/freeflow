@@ -16,7 +16,10 @@ const INDICATOR_TIMEOUT: Duration = Duration::from_secs(1);
 const DISMISS_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// Bridges PipelineListener trait to rinf signals.
-struct SignalListener;
+/// Also persists history entries via the history actor channel.
+struct SignalListener {
+    history_tx: Option<super::history_actor::HistoryInsertSender>,
+}
 
 impl PipelineListener for SignalListener {
     fn on_state_changed(&self, old: PipelineState, new: PipelineState) {
@@ -28,7 +31,6 @@ impl PipelineListener for SignalListener {
     }
 
     fn on_transcript_ready(&self, text: String) {
-        // Just notify Dart. Paste decision is made by the orchestrator.
         signals::TranscriptReady {
             transcript: text,
         }
@@ -48,6 +50,14 @@ impl PipelineListener for SignalListener {
     }
 
     fn on_history_entry_added(&self, entry: HistoryEntry) {
+        // Persist to SQLite via history actor.
+        if let Some(tx) = &self.history_tx {
+            if let Err(e) = tx.send(entry.clone()) {
+                log::error!("Failed to send history entry to actor: {e}");
+            }
+        }
+
+        // Notify Dart UI.
         signals::HistoryEntryAdded {
             entry: signals::HistoryEntryData {
                 id: entry.id,
@@ -71,10 +81,10 @@ pub struct PipelineActor {
 }
 
 impl PipelineActor {
-    pub fn new() -> Self {
+    pub fn new(history_tx: Option<super::history_actor::HistoryInsertSender>) -> Self {
         Self {
             engine: PipelineEngine::new(AppConfig::default()),
-            listener: SignalListener,
+            listener: SignalListener { history_tx },
             init_deadline: None,
             indicator_deadline: None,
             dismiss_deadline: None,

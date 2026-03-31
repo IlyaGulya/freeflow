@@ -2,29 +2,35 @@
 
 use rinf::{DartSignal, RustSignal};
 use std::path::PathBuf;
+use tokio::sync::mpsc;
 use wrenflow_core::history_store::HistoryStore;
+use wrenflow_domain::history::HistoryEntry;
 
 use crate::signals;
 
+/// Sender half for inserting history entries from other actors.
+pub type HistoryInsertSender = mpsc::UnboundedSender<HistoryEntry>;
+
 pub struct HistoryActor {
     store: HistoryStore,
+    insert_rx: mpsc::UnboundedReceiver<HistoryEntry>,
 }
 
 impl HistoryActor {
-    pub fn new(db_path: PathBuf) -> Result<Self, String> {
+    pub fn new(db_path: PathBuf) -> Result<(Self, HistoryInsertSender), String> {
         let store =
             HistoryStore::open(&db_path).map_err(|e| format!("Failed to open history db: {e}"))?;
-        Ok(Self { store })
+        let (tx, rx) = mpsc::unbounded_channel();
+        Ok((Self { store, insert_rx: rx }, tx))
     }
 
     /// Run in a dedicated thread (rusqlite Connection is !Send).
-    /// Receives commands via a channel from the async world.
-    pub fn run_blocking(self) {
+    /// Receives commands via channels from the async world and other actors.
+    pub fn run_blocking(mut self) {
         let load_recv = signals::LoadHistory::get_dart_signal_receiver();
         let delete_recv = signals::DeleteHistoryEntry::get_dart_signal_receiver();
         let clear_recv = signals::ClearHistory::get_dart_signal_receiver();
 
-        // Use a simple blocking loop with tokio runtime for signal receivers
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -33,6 +39,9 @@ impl HistoryActor {
         rt.block_on(async {
             loop {
                 tokio::select! {
+                    Some(entry) = self.insert_rx.recv() => {
+                        self.handle_insert(&entry);
+                    }
                     Some(_) = load_recv.recv() => {
                         self.handle_load();
                     }
@@ -80,7 +89,6 @@ impl HistoryActor {
     fn handle_delete(&self, id: &str) {
         match self.store.delete(id) {
             Ok(_) => {
-                // Reload and send updated list
                 self.handle_load();
             }
             Err(e) => {
@@ -103,12 +111,11 @@ impl HistoryActor {
         }
     }
 
-    /// Insert a new entry (called by pipeline actor).
-    pub fn insert(&self, entry: &wrenflow_domain::history::HistoryEntry) {
+    fn handle_insert(&self, entry: &HistoryEntry) {
         if let Err(e) = self.store.insert(entry) {
             log::error!("Failed to insert history entry: {e}");
+            return;
         }
-        // Trim to keep max 50 entries
         if let Err(e) = self.store.trim(50) {
             log::error!("Failed to trim history: {e}");
         }
