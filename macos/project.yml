@@ -73,6 +73,7 @@ targets:
         CODE_SIGN_STYLE: Manual
         CODE_SIGN_IDENTITY: "Developer ID Application"
         DEVELOPMENT_TEAM: T4LV8K9BGV
+        ENABLE_HARDENED_RUNTIME: true
       configs:
         Debug:
           CODE_SIGN_ENTITLEMENTS: Runner/DebugProfile.entitlements
@@ -80,6 +81,7 @@ targets:
           CODE_SIGN_ENTITLEMENTS: Runner/DebugProfile.entitlements
         Release:
           CODE_SIGN_ENTITLEMENTS: Runner/Release.entitlements
+          CODE_SIGN_INJECT_BASE_ENTITLEMENTS: false
     configFiles:
       Debug: Runner/Configs/Debug.xcconfig
       Release: Runner/Configs/Release.xcconfig
