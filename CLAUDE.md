@@ -12,12 +12,17 @@ All tools managed by **mise**. NEVER run bare `flutter`/`cargo`/`xcodegen` — a
 
 ## Non-Obvious Architecture
 
-- **Single Flutter engine**: Settings/History in main window via `ActiveScreen` — no multi-window. Rinf signals work everywhere.
+- **Single Flutter engine**: Settings (with History/About tabs) in main window via `ActiveScreen` (none/settings) — no multi-window. Rinf signals work everywhere.
 - **ONNX Runtime**: `load-dynamic` — dylib fetched by `scripts/download-ort.sh`, codesigned in XcodeGen post-build.
 - **CGEvent paste**: Replaces enigo (TSM crash). Uses `core-graphics` for Cmd+V.
 - **raw-input**: Replaces rdev. CGEventTap hotkeys, keycode changeable at runtime.
-- **No imperative windows**: `WindowSynchronizer` drives show/hide from state. Never call `windowManager.show()/hide()`.
-- **Icons built from source**: `mise run icons` — `AppIcon-Source.png` + `logo-bird.svg` via resvg. PNGs gitignored.
+- **No imperative windows**: `WindowSynchronizer` drives show/hide from state. Tray can also show/focus window directly.
+- **Native overlays**: Recording overlay + error toasts are native NSPanels at screenSaver level, driven via `dev.gulya.wrenflow/overlay` platform channel. NOT Flutter widgets (main window is hidden during recording).
+- **Icons built from SVG**: `mise run icons` — `AppIcon-Dock.svg` (dock), `AppIcon-Source.svg` (settings), `logo-bird.svg` (tray) via resvg. PNGs gitignored.
+- **Info.plist generated**: XcodeGen generates from `project.yml` `info:` section. Don't edit Info.plist directly.
+- **Audio**: Recordings saved as OGG/Opus (~15KB vs ~300KB WAV). Transcription runs from memory buffer, WAV write is parallel.
+- **Paths**: Use `dirs` crate for platform data directories (history.sqlite, recordings/).
+- **LSUIElement**: App starts as menu bar accessory (no dock icon). `dev.gulya.wrenflow/app_policy` channel toggles dock visibility when showing/hiding windows.
 - **No sandbox**: Required for accessibility + global hotkeys.
 
 ## Code Signing
