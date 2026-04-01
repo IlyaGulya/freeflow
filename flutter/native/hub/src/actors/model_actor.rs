@@ -164,11 +164,11 @@ async fn handle_initialize(cancel_flag: Arc<AtomicBool>, engine_handle: SharedTr
             let signal_state = match state {
                 wrenflow_core::transcription_local::ModelState::Compiling => {
                     log::info!("Model state: Compiling (ONNX execution plan)");
-                    signals::ModelState::Loading // Map Compiling → Loading for Dart
+                    signals::ModelState::Loading
                 }
                 wrenflow_core::transcription_local::ModelState::Ready => {
-                    log::info!("Model state: Ready");
-                    signals::ModelState::Ready
+                    log::info!("Model state: Loaded (proceeding to warmup)");
+                    signals::ModelState::Warming
                 }
                 wrenflow_core::transcription_local::ModelState::Error(msg) => {
                     log::error!("Model state: Error({msg})");
@@ -178,7 +178,14 @@ async fn handle_initialize(cancel_flag: Arc<AtomicBool>, engine_handle: SharedTr
             };
             signals::ModelStateChanged { state: signal_state }.send_signal_to_dart();
         }))?;
-        log::info!("spawn_blocking: engine.initialize() done");
+        log::info!("spawn_blocking: engine.initialize() done, warming up...");
+
+        // Prewarm: run dummy inference to compile ONNX graph ahead of first real use
+        signals::ModelStateChanged {
+            state: signals::ModelState::Warming,
+        }.send_signal_to_dart();
+        engine.prewarm().ok();
+
         // Store in shared handle
         if let Ok(mut guard) = handle.lock() {
             *guard = Some(engine);

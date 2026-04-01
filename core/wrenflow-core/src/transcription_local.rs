@@ -77,6 +77,20 @@ impl LocalTranscriptionEngine {
         }
     }
 
+    /// Run dummy inference to force ONNX Runtime graph compilation.
+    /// Call after `initialize()` and before real transcription to eliminate
+    /// cold-start latency on the first real request.
+    pub fn prewarm(&mut self) -> Result<(), LocalTranscriptionError> {
+        let model = self.model.as_mut()
+            .ok_or(LocalTranscriptionError::ModelNotLoaded)?;
+
+        let start = std::time::Instant::now();
+        let silence = vec![0.0f32; 16000]; // 1 second of silence
+        let _ = model.transcribe_samples(silence, 16000, 1, None);
+        log::info!("ParakeetTDT prewarmed in {:?}", start.elapsed());
+        Ok(())
+    }
+
     /// Transcribe 16kHz mono f32 audio samples to text.
     pub fn transcribe(&mut self, samples: &[f32]) -> Result<String, LocalTranscriptionError> {
         let model = self.model.as_mut()

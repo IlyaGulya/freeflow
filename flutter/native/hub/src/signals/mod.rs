@@ -37,6 +37,7 @@ pub enum ModelState {
     NotDownloaded,
     Downloading { progress: f64, speed_bps: f64, eta_secs: f64 },
     Loading,
+    Warming,
     Ready,
     Error { message: String },
 }

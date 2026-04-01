@@ -540,6 +540,26 @@ class _GlobalModelIndicator extends ConsumerWidget {
       );
     }
 
+    if (state is ModelStateWarming) {
+      return Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          SizedBox(
+            width: 8,
+            height: 8,
+            child: CircularProgressIndicator(
+              strokeWidth: 1.5,
+              valueColor: AlwaysStoppedAnimation(WrenflowStyle.textTertiary),
+            ),
+          ),
+          const SizedBox(width: 6),
+          Text('Warming up model...',
+              style: WrenflowStyle.mono(9).copyWith(
+                  color: WrenflowStyle.textTertiary)),
+        ],
+      );
+    }
+
     if (state is ModelStateError) {
       return Text('Model: ${state.message}',
           style: WrenflowStyle.mono(9).copyWith(color: WrenflowStyle.red),
@@ -663,6 +683,19 @@ class _TranscriptionTestWidgetState
             const InitializingDots(),
             const SizedBox(width: 8),
             Text('Loading model...', style: WrenflowStyle.caption(11)),
+          ],
+        ),
+      );
+    }
+    if (modelState is ModelStateWarming) {
+      return Center(
+        key: const ValueKey('model-warming'),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const InitializingDots(),
+            const SizedBox(width: 8),
+            Text('Warming up model...', style: WrenflowStyle.caption(11)),
           ],
         ),
       );

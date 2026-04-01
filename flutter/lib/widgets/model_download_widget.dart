@@ -24,6 +24,7 @@ class ModelDownloadWidget extends ConsumerWidget {
         ModelStateNotDownloaded() => _buildNotDownloaded(),
         ModelStateDownloading() => _buildDownloading(state),
         ModelStateLoading() => _buildLoading(),
+        ModelStateWarming() => _buildWarming(),
         ModelStateReady() => _buildReady(),
         ModelStateError() => _buildError(state.message),
         _ => _buildNotDownloaded(),
@@ -176,6 +177,30 @@ class ModelDownloadWidget extends ConsumerWidget {
           SizedBox(width: 12),
           Text(
             'Loading model...',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
+              color: Color(0xFF8E8E93),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildWarming() {
+    return const _CardContainer(
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          SizedBox(
+            width: 20,
+            height: 20,
+            child: CupertinoActivityIndicator(),
+          ),
+          SizedBox(width: 12),
+          Text(
+            'Warming up model...',
             style: TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w500,
