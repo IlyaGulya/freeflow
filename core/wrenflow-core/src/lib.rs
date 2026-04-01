@@ -11,6 +11,9 @@ pub use wrenflow_domain::model_management;
 // Audio capture (cpal-based)
 pub mod audio_capture;
 
+// Audio encoding
+pub mod opus_encoder;
+
 // Persistence
 pub mod config_store;
 pub mod history_store;

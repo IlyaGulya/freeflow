@@ -124,25 +124,24 @@ impl HistoryActor {
 
 /// Get the default history database path for the current platform.
 pub fn default_history_path() -> PathBuf {
-    #[cfg(target_os = "macos")]
-    {
-        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-        PathBuf::from(home)
-            .join("Library/Application Support/Wrenflow")
-            .join("history.sqlite")
-    }
-    #[cfg(target_os = "windows")]
-    {
-        let appdata = std::env::var("APPDATA").unwrap_or_else(|_| ".".to_string());
-        PathBuf::from(appdata)
-            .join("Wrenflow")
-            .join("history.sqlite")
-    }
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    {
-        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-        PathBuf::from(home)
-            .join(".local/share/wrenflow")
-            .join("history.sqlite")
+    dirs::data_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("Wrenflow/history.sqlite")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn history_path_is_persistent() {
+        let path = default_history_path();
+        let path_str = path.to_string_lossy();
+        // Must not be in /tmp or relative
+        assert!(path.is_absolute(), "path should be absolute: {path_str}");
+        assert!(!path_str.contains("/tmp"), "path should not be in /tmp: {path_str}");
+        assert!(path_str.contains("Wrenflow"), "path should contain Wrenflow: {path_str}");
+        assert!(path_str.ends_with("history.sqlite"), "path should end with history.sqlite: {path_str}");
+        eprintln!("history path: {path_str}");
     }
 }

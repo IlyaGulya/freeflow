@@ -13,6 +13,7 @@ use hotkey_actor::HotkeyActor;
 use model_actor::SharedTranscriptionEngine;
 use pipeline_actor::PipelineActor;
 use rinf::{DartSignal, RustSignal};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::spawn;
@@ -111,25 +112,31 @@ pub async fn create_actors() {
                                         result.metrics.duration_ms,
                                         result.samples_16k.len());
 
-                                    // Write WAV file in parallel (for history/debugging).
-                                    let wav_samples = result.samples_16k.clone();
+                                    // Save OGG/Opus recording in parallel (persistent storage).
+                                    let opus_samples = result.samples_16k.clone();
                                     tokio::task::spawn_blocking(move || {
-                                        let path = std::env::temp_dir().join(format!(
-                                            "wrenflow_recording_{}.wav",
+                                        let recordings_dir = recordings_dir();
+                                        if let Err(e) = std::fs::create_dir_all(&recordings_dir) {
+                                            log::error!("Failed to create recordings dir: {e}");
+                                            return;
+                                        }
+                                        let filename = format!(
+                                            "recording_{}.ogg",
                                             std::time::SystemTime::now()
                                                 .duration_since(std::time::UNIX_EPOCH)
                                                 .unwrap_or_default()
                                                 .as_millis()
-                                        ));
+                                        );
+                                        let path = recordings_dir.join(&filename);
                                         match std::fs::File::create(&path) {
                                             Ok(mut f) => {
-                                                if let Err(e) = wrenflow_domain::audio::wav::encode_wav(&mut f, &wav_samples) {
-                                                    log::error!("WAV encode error: {e}");
+                                                if let Err(e) = wrenflow_core::opus_encoder::encode_ogg_opus(&mut f, &opus_samples) {
+                                                    log::error!("Opus encode error: {e}");
                                                 } else {
-                                                    log::info!("WAV saved: {}", path.display());
+                                                    log::info!("Opus saved: {}", path.display());
                                                 }
                                             }
-                                            Err(e) => log::error!("WAV create error: {e}"),
+                                            Err(e) => log::error!("Opus file create error: {e}"),
                                         }
                                     });
 
@@ -202,4 +209,11 @@ pub async fn create_actors() {
             pipeline.check_timers().await;
         }
     });
+}
+
+/// Persistent directory for audio recordings.
+fn recordings_dir() -> PathBuf {
+    dirs::data_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("Wrenflow/recordings")
 }
