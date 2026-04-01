@@ -52,10 +52,21 @@ targets:
       - path: Flutter
         includes:
           - "*.swift"
+    info:
+      path: Runner/Info.plist
+      properties:
+        CFBundleIconFile: AppIcon
+        CFBundleIconName: AppIcon
+        CFBundleShortVersionString: $(FLUTTER_BUILD_NAME)
+        CFBundleVersion: $(FLUTTER_BUILD_NUMBER)
+        LSMinimumSystemVersion: $(MACOSX_DEPLOYMENT_TARGET)
+        NSHumanReadableCopyright: $(PRODUCT_COPYRIGHT)
+        NSMainNibFile: MainMenu
+        NSPrincipalClass: NSApplication
+        NSMicrophoneUsageDescription: Wrenflow needs microphone access for speech-to-text dictation.
+        LSUIElement: true
     settings:
       base:
-        INFOPLIST_FILE: Runner/Info.plist
-        GENERATE_INFOPLIST_FILE: true
         PRODUCT_BUNDLE_IDENTIFIER: me.gulya.wrenflow
         PRODUCT_NAME: wrenflow
         SWIFT_VERSION: "5.0"
