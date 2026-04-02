@@ -66,5 +66,6 @@ crash/
 # Misc
 Resources/icon-preview.html
 
-# Claude Code
-.claude/
+# Claude Code (local only)
+.claude/settings.local.json
+.claude/worktrees/

@@ -25,6 +25,10 @@ All tools managed by **mise**. NEVER run bare `flutter`/`cargo`/`xcodegen` — a
 - **LSUIElement**: App starts as menu bar accessory (no dock icon). `dev.gulya.wrenflow/app_policy` channel toggles dock visibility when showing/hiding windows.
 - **No sandbox**: Required for accessibility + global hotkeys.
 
+## Releases
+
+See [release skill](.claude/skills/release/SKILL.md) for the full release workflow. Quick version: merge the release-please PR to cut a release.
+
 ## Code Signing
 
 `Developer ID Application: Ilya Gulya (T4LV8K9BGV)`, bundle `me.gulya.wrenflow`
